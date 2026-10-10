@@ -168,6 +168,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .badge.dupwarn{background:#f6dede;color:var(--crimson);cursor:help;}
 .pocket.hl-new{box-shadow:0 0 0 3px #d9a21b, 0 2px 6px rgba(0,0,0,.35);}
 .pocket.hl-update{box-shadow:0 0 0 3px #5b8bb5, 0 2px 6px rgba(0,0,0,.35);}
+.pocket.hl-decide{box-shadow:0 0 0 3px #d9702b, 0 2px 6px rgba(0,0,0,.35);}
+.hl-badge-decide{background:#d9702b;pointer-events:auto;cursor:pointer;border:none;font-family:inherit;}
+.chip.hl-pg-decide{border-color:#d9702b;}
 .pocket.hl-imported{box-shadow:0 0 0 3px #8a8a8a, 0 2px 6px rgba(0,0,0,.35);}
 .hl-badge{position:absolute;top:5px;left:50%;transform:translateX(-50%);z-index:4;font-size:8.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:10px;color:#fff;white-space:nowrap;pointer-events:none;}
 .hl-badge-new{background:#d9a21b;}
@@ -1459,6 +1462,7 @@ let reconcileReturnHash = '#/history';
 let importDetailFilter = 'all';
 let importDetailSort = 'recent';
 let lastToolStatus = { picks:0, pairs:0, diffs:0, total:0 };
+let binderHlAlts = new Map(); // species -> new non-pick cards (for the "replace?" icon); declared up here so a refresh on the Binder can't hit it uninitialised
 let dupSort = 'alpha';
 let importSelection = new Set();
 function render(){
@@ -1529,6 +1533,16 @@ document.addEventListener('click', (e) => {
   if(editBtn){ openCardEditor(editBtn.dataset.card); return; }
   const delBtn = e.target.closest('[data-action="delete-card"]');
   if(delBtn){ deleteCard(delBtn.dataset.card); return; }
+  const decideOpen = e.target.closest('[data-action="binder-decide"]');
+  if(decideOpen){ openBinderDecideModal(decideOpen.dataset.species); return; }
+  const decidePick = e.target.closest('[data-action="binder-decide-pick"]');
+  if(decidePick){
+    const sp = decidePick.dataset.species;
+    binderDecidePick(sp, decidePick.dataset.card);
+    closeModal(); toast(`${sp}: binder card changed. Swap it in your physical binder too.`); render(); return;
+  }
+  const decideKeep = e.target.closest('[data-action="binder-decide-keep"]');
+  if(decideKeep){ binderDecideKeep(decideKeep.dataset.species); closeModal(); toast('Keeping the current card.'); render(); return; }
   const spNav = e.target.closest('[data-nav-species]');
   if(spNav){ closeAllSearchDropdowns(); location.hash = '#/pokedex/' + encodeURIComponent(spNav.dataset.navSpecies); return; }
   const taxNav = e.target.closest('[data-nav-taxonomy]');
@@ -1773,7 +1787,6 @@ function wireScreenEvents(routeId){
    Init
    ============================================================ */
 wireSpeciesSearchInput($('#globalSearch'), $('#globalSearchDropdown'));
-render();
 
 /* ============================================================
    Dashboard
@@ -2943,7 +2956,8 @@ function renderEvolutions(){
    You can tick other imports on or off at any time.
    ============================================================ */
 function binderHlState(){
-  if(!STATE.settings.binderHl) STATE.settings.binderHl = { caughtUpAt:null, on:[], off:[] };
+  if(!STATE.settings.binderHl) STATE.settings.binderHl = { caughtUpAt:null, on:[], off:[], decided:{} };
+  if(!STATE.settings.binderHl.decided) STATE.settings.binderHl.decided = {};
   return STATE.settings.binderHl;
 }
 function binderHighlightedBatchIds(){
@@ -2961,18 +2975,68 @@ function binderHighlightedBatchIds(){
   (st.off||[]).forEach(id => ids.delete(id));
   return ids;
 }
-/* species name -> 'new' | 'update' | 'imported' (only for the card that sits in the binder pocket) */
+/* species name -> 'new' | 'decide' | 'update' | 'imported'.
+   new / update / imported: the card sitting in the binder pocket came in with a highlighted import.
+   decide: a NEW card came in for a Pokémon that already has a different card in the binder,
+   so you may want to swap it in. (Those new cards are kept in binderHlAlts for the tooltip.) */
 function binderHighlights(){
   const ids = binderHighlightedBatchIds();
   const out = new Map();
+  binderHlAlts = new Map();
   if(!ids.size) return out;
+  const decided = binderHlState().decided || {};
   const { items } = collectImportItems(STATE.history.filter(b => ids.has(b.id)));
+  const alts = new Map();
   items.forEach(it => {
     const c = it.card;
-    if(!c.species || STATE.picks[c.species] !== c.id) return;
-    out.set(c.species, it.status==='new' ? 'new' : it.status==='update' ? 'update' : 'imported');
+    if(!c.species) return;
+    const pickId = STATE.picks[c.species];
+    if(pickId === c.id){
+      out.set(c.species, it.status==='new' ? 'new' : it.status==='update' ? 'update' : 'imported');
+    } else if(pickId && it.status==='new' && !(decided[c.species]||[]).includes(c.id)){
+      if(!alts.has(c.species)) alts.set(c.species, []);
+      alts.get(c.species).push(c);
+    }
+  });
+  alts.forEach((cards, sp) => {
+    if(out.get(sp) === 'new') return;   // the binder card itself is new: nothing to decide
+    out.set(sp, 'decide');
+    binderHlAlts.set(sp, cards);
   });
   return out;
+}
+/* "Do I swap the new card in?" — a small chooser opened from the decide icon. */
+function openBinderDecideModal(species){
+  const ids = binderHighlightedBatchIds();
+  const { items } = collectImportItems(STATE.history.filter(b => ids.has(b.id)));
+  const newIds = new Set(items.filter(i => i.status==='new').map(i => i.card.id));
+  const pickId = STATE.picks[species];
+  const cards = cardsForSpecies(species);
+  const rows = cards.map(c => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line-strong);">
+      <div>
+        <div class="set">${esc(c.set)} · #${esc(c.cardNumber)}${c.variance?(' · '+esc(c.variance)):''} · ${esc(c.condition)}</div>
+        <div class="meta">Qty ${c.quantity}${c.marketPrice?' · $'+Number(c.marketPrice).toFixed(2):''}</div>
+        <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;">${c.id===pickId?'<span class="badge pick">★ In the binder now</span>':''}${newIds.has(c.id)?'<span class="badge new">NEW</span>':''}</div>
+      </div>
+      ${c.id===pickId ? '' : `<button class="btn sm primary" data-action="binder-decide-pick" data-species="${esc(species)}" data-card="${esc(c.id)}">Put this one in the binder</button>`}
+    </div>`).join('');
+  openModal(`${species}: which card goes in the binder?`,
+    `<p style="font-size:13.5px;">You already have a card for ${esc(species)} in the binder, and a new one just came in. Pick the one you want in the binder; the others stay in your extras.</p>${rows}`,
+    `<button class="btn" data-action="binder-decide-keep" data-species="${esc(species)}">Keep the current one</button>`);
+}
+function binderDecideKeep(species){
+  binderHighlights();
+  const st = binderHlState();
+  const seen = new Set(st.decided[species] || []);
+  (binderHlAlts.get(species) || []).forEach(c => seen.add(c.id));
+  st.decided[species] = [...seen];
+  persist('settings');
+}
+function binderDecidePick(species, cardId){
+  if(!STATE.collection.some(c => c.id === cardId && c.species === species)) return;
+  STATE.picks[species] = cardId;
+  persist('picks');
 }
 function toggleBinderHighlight(id){
   const st = binderHlState();
@@ -2985,7 +3049,7 @@ function toggleBinderHighlight(id){
 }
 function markBinderCaughtUp(){
   const st = binderHlState();
-  st.caughtUpAt = new Date().toISOString(); st.on = []; st.off = [];
+  st.caughtUpAt = new Date().toISOString(); st.on = []; st.off = []; st.decided = {};
   persist('settings');
 }
 function binderHighlightPanelHTML(hl){
@@ -2993,8 +3057,8 @@ function binderHighlightPanelHTML(hl){
   if(!imports.length) return '';
   const ids = binderHighlightedBatchIds();
   const kinds = [...hl.values()];
-  const nNew = kinds.filter(k => k==='new').length, nUpd = kinds.filter(k => k==='update').length, nImp = kinds.filter(k => k==='imported').length;
-  const rank = k => k==='new' ? 0 : k==='imported' ? 1 : 2;
+  const nNew = kinds.filter(k => k==='new').length, nDec = kinds.filter(k => k==='decide').length, nUpd = kinds.filter(k => k==='update').length, nImp = kinds.filter(k => k==='imported').length;
+  const rank = k => k==='new' ? 0 : k==='decide' ? 1 : k==='imported' ? 2 : 3;
   const pages = new Map();
   hl.forEach((kind, sp) => {
     const slot = binderSlotBySpecies.get(sp); if(!slot) return;
@@ -3004,7 +3068,7 @@ function binderHighlightPanelHTML(hl){
   const pageList = [...pages.keys()].sort((a,b) => a-b);
   const next = pageList.find(pg => pg > binderPage) ?? pageList[0];
   const summary = hl.size
-    ? `<strong>${fmtInt(nNew)}</strong> new to add${nUpd ? ` · <strong>${fmtInt(nUpd)}</strong> updated` : ''}${nImp ? ` · <strong>${fmtInt(nImp)}</strong> from older imports (new or updated unknown)` : ''} · on <strong>${fmtInt(pageList.length)}</strong> page${pageList.length===1?'':'s'}`
+    ? `<strong>${fmtInt(nNew)}</strong> new to add${nDec ? ` · <strong>${fmtInt(nDec)}</strong> to decide (new card for a Pokémon already in the binder)` : ''}${nUpd ? ` · <strong>${fmtInt(nUpd)}</strong> updated` : ''}${nImp ? ` · <strong>${fmtInt(nImp)}</strong> from older imports (new or updated unknown)` : ''} · on <strong>${fmtInt(pageList.length)}</strong> page${pageList.length===1?'':'s'}`
     : (ids.size ? 'Nothing from the ticked imports sits in the binder. Their cards are extras, or still need a binder pick (see Tools).' : 'Nothing highlighted. Tick an import below to see where its cards go.');
   return `
     <div class="card hl-panel">
@@ -3102,10 +3166,11 @@ function renderPocket(slot, editMode, selection, hl){
   const fromName = sp ? evolvesFrom(sp) : null;
   const mark = hl ? hl.get(slot.display) : null;
   const cls = ['pocket', owned?'owned':'missing', pick?'haspick':'', mark?'hl-'+mark:''].join(' ').trim();
-  const markLabel = { new:['✦ NEW','New from a recent import: add it to the binder'], update:['↻ UPDATED','Updated by a recent import (quantity or price changed)'], imported:['● IMPORTED','Came in with a recent import (older import: not known whether new or updated)'] }[mark];
+  const nAlt = (binderHlAlts.get(slot.display) || []).length;
+  const markLabel = { new:['✦ NEW','New from a recent import: add it to the binder'], decide:['⇄ REPLACE?', `${nAlt} new card${nAlt===1?'':'s'} for this Pokémon came in with a recent import. Tap to decide whether to swap ${nAlt===1?'it':'one'} into the binder.`], update:['↻ UPDATED','Updated by a recent import (quantity or price changed)'], imported:['● IMPORTED','Came in with a recent import (older import: not known whether new or updated)'] }[mark];
   return `
     <div class="${cls}" data-nav-species="${esc(slot.display)}">
-      ${mark ? `<span class="hl-badge hl-badge-${mark}" title="${esc(markLabel[1])}">${markLabel[0]}</span>` : ''}
+      ${mark ? (mark==='decide' ? `<button class="hl-badge hl-badge-decide" data-action="binder-decide" data-species="${esc(slot.display)}" title="${esc(markLabel[1])}">${markLabel[0]}</button>` : `<span class="hl-badge hl-badge-${mark}" title="${esc(markLabel[1])}">${markLabel[0]}</span>`) : ''}
       ${owned && sp ? `<div class="pocket-art">${speciesImgTag(sp,'pocket-img')}</div>` : ''}
       <div class="pocket-overlay">
         <div class="top">
@@ -4164,6 +4229,10 @@ function restoreBackup(file){
   reader.readAsText(file);
 }
 
+// Boot: the first render happens last, after every variable above has been declared,
+// so reloading the app while sitting on any page (the Binder, Pokédex, Import...) can't hit an
+// uninitialised variable and stop the app from starting.
+render();
 </script>
 </body>
 </html>
