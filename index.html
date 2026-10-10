@@ -166,6 +166,35 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .badge.review{background:#f6dede;color:var(--crimson);}
 .badge.dup{background:var(--paper-sunken);color:var(--ink-soft);}
 .badge.dupwarn{background:#f6dede;color:var(--crimson);cursor:help;}
+.pocket.hl-new{box-shadow:0 0 0 3px #d9a21b, 0 2px 6px rgba(0,0,0,.35);}
+.pocket.hl-update{box-shadow:0 0 0 3px #5b8bb5, 0 2px 6px rgba(0,0,0,.35);}
+.pocket.hl-imported{box-shadow:0 0 0 3px #8a8a8a, 0 2px 6px rgba(0,0,0,.35);}
+.hl-badge{position:absolute;top:5px;left:50%;transform:translateX(-50%);z-index:4;font-size:8.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:10px;color:#fff;white-space:nowrap;pointer-events:none;}
+.hl-badge-new{background:#d9a21b;}
+.hl-badge-update{background:#5b8bb5;}
+.hl-badge-imported{background:#7a7a7a;}
+.hl-panel{padding:12px 14px;margin-bottom:12px;}
+.hl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+.hl-title{font-family:var(--font-display);font-weight:600;font-size:15px;}
+.hl-sum{font-size:13px;color:var(--ink-soft);margin-top:2px;}
+.hl-pages{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.chip.hl-pg-new{border-color:#d9a21b;}
+.chip.hl-pg-update{border-color:#5b8bb5;}
+.reddot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#e5372b;margin-left:7px;vertical-align:middle;flex-shrink:0;}
+.navlink .reddot,.more-menu-item .reddot{margin-left:auto;}
+.pagehead h1 .reddot{width:11px;height:11px;margin-left:10px;}
+@media (max-width:860px){
+  .tabbar button{position:relative;}
+  .tabbar button .reddot{position:absolute;top:4px;left:calc(50% + 7px);margin:0;box-shadow:0 0 0 2px var(--ink);}
+}
+.toolcard{display:flex;gap:14px;align-items:flex-start;text-align:left;width:100%;padding:16px;margin-bottom:10px;cursor:pointer;font:inherit;color:inherit;}
+.toolcard-ico svg{width:26px;height:26px;color:var(--ink-soft);}
+.toolcard-title{font-family:var(--font-display);font-weight:600;font-size:16px;display:flex;align-items:center;}
+.toolcard-desc{font-size:13px;color:var(--ink-soft);margin-top:2px;}
+.toolcard-status{font-size:12.5px;font-weight:600;margin-top:8px;}
+.toolcard-status.need{color:var(--crimson);}
+.toolcard-status.ok{color:var(--moss);}
+.badge.held{background:#f4e7cd;color:var(--brass);}
 .pair-card{padding:14px;margin-bottom:10px;}
 .pair-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-radius:8px;margin-top:4px;}
 .pair-line.regular{background:#f6dede;}
@@ -583,6 +612,7 @@ const ICONS = {
   photo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.7"/><path d="M21 15l-5-5-11 11"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="4 12.5 9.5 18 20 6"/></svg>',
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  tools:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3z"/><path d="M14.7 6.3l2.5-2.5a4 4 0 0 0-3.800 1.200"/></svg>',
   dupes:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="12" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4"/></svg>',
   more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2.1"/><circle cx="12" cy="12" r="2.1"/><circle cx="19" cy="12" r="2.1"/></svg>',
 };
@@ -631,6 +661,8 @@ const LS_KEYS = {
   taxonomy: 'pkmn.taxonomy',
   familyOverrides: 'pkmn.familyOverrides',
   customSpecies: 'pkmn.customSpecies',
+  collectrSnapshot: 'pkmn.collectrSnapshot',
+  removedInApp: 'pkmn.removedInApp',
 };
 
 function loadJSON(key, fallback){
@@ -655,6 +687,8 @@ let STATE = {
   taxonomy: loadJSON(LS_KEYS.taxonomy, null), // {groups,categories,subcategories} - your custom category list, if you've edited it
   familyOverrides: loadJSON(LS_KEYS.familyOverrides, {}), // species name -> {evoFamily,evoOrder} - your custom evolution-family edits
   customSpecies: loadJSON(LS_KEYS.customSpecies, []), // full species records you've added by hand (not in the built-in dex)
+  collectrSnapshot: loadJSON(LS_KEYS.collectrSnapshot, null), // {date,filename,portfolio,ids[]} — every card id in your most recent Collectr import
+  removedInApp: loadJSON(LS_KEYS.removedInApp, {}), // cardId -> {removedAt, card} — cards you removed here that Collectr may still have
 };
 if(!STATE.settings.cloudSync) STATE.settings.cloudSync = { enabled:false, syncCode:'', config:null };
 // Load your saved category list (if you've customized it) over the built-in
@@ -756,6 +790,8 @@ function persist(part){
   else if(part==='taxonomy') saveJSON(LS_KEYS.taxonomy, STATE.taxonomy);
   else if(part==='familyOverrides') saveJSON(LS_KEYS.familyOverrides, STATE.familyOverrides);
   else if(part==='customSpecies') saveJSON(LS_KEYS.customSpecies, STATE.customSpecies);
+  else if(part==='collectrSnapshot') saveJSON(LS_KEYS.collectrSnapshot, STATE.collectrSnapshot);
+  else if(part==='removedInApp') saveJSON(LS_KEYS.removedInApp, STATE.removedInApp);
   // Push to the cloud (if connected) whenever real data changes. Settings
   // writes are excluded so that pushToCloud() recording its own
   // lastPushedAt timestamp (a settings write) can't trigger itself again.
@@ -865,6 +901,53 @@ function speciesNeedingPickReconciliation(onlySpecies){
    twice by Collectr rather than two different cards. Returns a Map from
    cardId to the other card(s) in its group, for flagging in the collection
    list. */
+function redDotHTML(){ return '<span class="reddot" role="img" aria-label="needs attention"></span>'; }
+
+/* ---- Collectr vs app: what each side still has that the other doesn't ---- */
+function recordAppRemovals(cards){
+  let any = false;
+  cards.forEach(c => { if(c && c.importBatch){ STATE.removedInApp[c.id] = { removedAt:new Date().toISOString(), card:c }; any = true; } });
+  if(any) persist('removedInApp');
+}
+function collectrDiscrepancies(){
+  const snap = STATE.collectrSnapshot;
+  if(!snap || !Array.isArray(snap.ids)) return { hasSnapshot:false, snapshot:null, inAppOnly:[], inCollectrOnly:[] };
+  const ids = new Set(snap.ids);
+  // cards that came from Collectr, aren't in its latest export, and you haven't said to keep
+  const inAppOnly = STATE.collection.filter(c => c.importBatch && !c.keepInApp && !ids.has(c.id));
+  // cards you removed here that its latest export still lists
+  const here = new Set(STATE.collection.map(c => c.id));
+  const inCollectrOnly = Object.keys(STATE.removedInApp).filter(id => ids.has(id) && !here.has(id)).map(id => ({ id, removedAt:STATE.removedInApp[id].removedAt, card:STATE.removedInApp[id].card }));
+  return { hasSnapshot:true, snapshot:snap, inAppOnly, inCollectrOnly };
+}
+function removeCardsFromApp(ids){
+  const rm = new Set(ids);
+  const species = new Set(STATE.collection.filter(c => rm.has(c.id)).map(c => c.species).filter(Boolean));
+  STATE.collection = STATE.collection.filter(c => !rm.has(c.id));
+  Object.keys(STATE.picks).forEach(sp => { if(rm.has(STATE.picks[sp])) delete STATE.picks[sp]; });
+  persist('collection'); persist('picks');
+  autoAssignSinglePicks(species);
+}
+function restoreRemovedCards(ids){
+  const species = new Set(); let n = 0;
+  ids.forEach(id => {
+    const t = STATE.removedInApp[id]; if(!t) return;
+    if(!STATE.collection.some(c => c.id === id)){ STATE.collection.push(t.card); n++; if(t.card.species) species.add(t.card.species); }
+    delete STATE.removedInApp[id];
+  });
+  persist('collection'); persist('removedInApp');
+  autoAssignSinglePicks(species);
+  return n;
+}
+/* How many things each tool is waiting on. Drives every red dot. */
+function toolsStatus(){
+  const d = collectrDiscrepancies();
+  const picks = speciesNeedingPickReconciliation().length;
+  const pairs = foilRegularGroups().length;
+  const diffs = d.inAppOnly.length + d.inCollectrOnly.length;
+  return { picks, pairs, diffs, total: picks + pairs + diffs };
+}
+
 /* "regular" | "foil" | "other" from Collectr's Variance text. */
 function finishKind(variance){
   const v = norm(variance||'');
@@ -1174,7 +1257,8 @@ function buildImportPreview(rows, portfolioFilter){
     const id = compositeKey(row);
     const existing = STATE.collection.find(c => c.id === id);
     let status;
-    if(!species) status = 'review';
+    if(STATE.removedInApp[id]) status = 'held'; // you removed this in the app; Collectr still has it
+    else if(!species) status = 'review';
     else if(!existing) status = 'new';
     else {
       const changed = existing.quantity !== row.quantity ||
@@ -1189,13 +1273,14 @@ function buildImportPreview(rows, portfolioFilter){
 }
 
 function commitImport(preview, filename, chosenPortfolio){
-  let added=0, updated=0, unchanged=0, reviewSkipped=0, learned=0;
+  let added=0, updated=0, unchanged=0, reviewSkipped=0, learned=0, heldBack=0;
   const batchId = uid();
   const touchedSpecies = new Set();
   const newIds = [], updatedIds = [];
   const ownedBefore = new Set(STATE.collection.filter(c => c.species).map(c => c.species));
   const idSpecies = new Map();
   for(const item of preview.items){
+    if(item.status === 'held'){ heldBack++; continue; }
     const species = item.species || (item.manualSpecies || null);
     if(!species && !item.acceptUnlinked){
       reviewSkipped++;
@@ -1244,6 +1329,14 @@ function commitImport(preview, filename, chosenPortfolio){
       updated -= moved.length; added += moved.length;
     }
   }
+  // Remember exactly which cards Collectr had at this import, so the Tools
+  // page can tell you where the app and Collectr disagree. Anything you'd
+  // removed in the app that Collectr no longer lists is resolved: forget it.
+  const snapIds = [...new Set(preview.items.map(i => i.id))];
+  STATE.collectrSnapshot = { date: new Date().toISOString(), filename, portfolio: chosenPortfolio, ids: snapIds };
+  const snapSet = new Set(snapIds);
+  Object.keys(STATE.removedInApp).forEach(id => { if(!snapSet.has(id)) delete STATE.removedInApp[id]; });
+  persist('collectrSnapshot'); persist('removedInApp');
   if(learned) persist('overrides');
   persist('collection');
   const batch = {
@@ -1251,7 +1344,7 @@ function commitImport(preview, filename, chosenPortfolio){
     portfolio: chosenPortfolio,
     totalRows: preview.totalRows, inScope: preview.inScopeCount,
     added, updated, unchanged, reviewSkipped,
-    newIds, updatedIds, newSpecies,
+    newIds, updatedIds, newSpecies, heldBack,
   };
   STATE.history.unshift(batch);
   persist('history');
@@ -1305,11 +1398,13 @@ const ROUTES = [
   { id:'evolutions', label:'Evolutions', icon:'evolutions' },
   { id:'binder', label:'Binder', icon:'binder' },
   { id:'extras', label:'Extras Binder', icon:'extras' },
-  { id:'duplicates', label:'Foil + Regular', icon:'dupes' },
+  { id:'tools', label:'Tools', icon:'tools' },
   { id:'import', label:'Import', icon:'import' },
   { id:'history', label:'Import History', icon:'history' },
   { id:'settings', label:'Settings', icon:'settings' },
 ];
+// Tools is a hub: these pages all live under it in the menu.
+const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates'];
 // The bottom tabbar only has room for a handful of tabs before they either
 // get crammed or require horizontal scrolling to discover. These four cover
 // the screens used day-to-day; everything else lives behind "More".
@@ -1323,23 +1418,25 @@ function currentRoute(){
 
 function navHTML(activeId, mobile){
   if(!mobile){
-    return ROUTES.map(r => `<button class="navlink ${r.id===activeId?'active':''}" data-nav="${r.id}">${ICONS[r.icon]}<span>${r.label}</span></button>`).join('');
+    return ROUTES.map(r => `<button class="navlink ${r.id===activeId?'active':''}" data-nav="${r.id}">${ICONS[r.icon]}<span>${r.label}</span>${r.id==='tools' && lastToolStatus.total ? redDotHTML() : ''}</button>`).join('');
   }
   const overflow = ROUTES.filter(r => !MOBILE_PRIMARY_ROUTE_IDS.includes(r.id));
   const primaryHTML = MOBILE_PRIMARY_ROUTE_IDS.map(id => ROUTES.find(r=>r.id===id))
     .map(r => `<button class="${r.id===activeId?'active':''}" data-nav="${r.id}">${ICONS[r.icon]}<span>${r.label.replace(' History','')}</span></button>`)
     .join('');
   const moreActive = overflow.some(r => r.id===activeId);
-  return primaryHTML + `<button class="${moreActive?'active':''}" data-action="open-more-menu">${ICONS.more}<span>More</span></button>`;
+  return primaryHTML + `<button class="${moreActive?'active':''}" data-action="open-more-menu">${ICONS.more}<span>More</span>${lastToolStatus.total ? redDotHTML() : ''}</button>`;
 }
 function openMoreMenu(){
-  const { id: activeId } = currentRoute();
+  lastToolStatus = toolsStatus();
+  const { id: curId } = currentRoute();
+  const activeId = TOOL_ROUTE_IDS.includes(curId) ? 'tools' : curId;
   const overflow = ROUTES.filter(r => !MOBILE_PRIMARY_ROUTE_IDS.includes(r.id));
   const body = `
     <div class="more-menu-list">
       ${overflow.map(r => `
         <button class="more-menu-item ${r.id===activeId?'active':''}" data-nav="${r.id}">
-          ${ICONS[r.icon]}<span>${r.label}</span>
+          ${ICONS[r.icon]}<span>${r.label}</span>${r.id==='tools' && lastToolStatus.total ? redDotHTML() : ''}
         </button>`).join('')}
     </div>`;
   openModal('More', body, '');
@@ -1347,7 +1444,9 @@ function openMoreMenu(){
 }
 
 function renderShell(){
-  const { id } = currentRoute();
+  const { id: curId } = currentRoute();
+  const id = TOOL_ROUTE_IDS.includes(curId) ? 'tools' : curId;
+  lastToolStatus = toolsStatus();
   $('#sidebarNav').innerHTML = navHTML(id, false);
   $('#tabbarNav').innerHTML = navHTML(id, true);
 }
@@ -1359,6 +1458,7 @@ let reconcileQueue = [];
 let reconcileReturnHash = '#/history';
 let importDetailFilter = 'all';
 let importDetailSort = 'recent';
+let lastToolStatus = { picks:0, pairs:0, diffs:0, total:0 };
 let dupSort = 'alpha';
 let importSelection = new Set();
 function render(){
@@ -1388,6 +1488,9 @@ function render(){
     binder: renderBinder,
     extras: renderExtras,
     duplicates: renderDuplicates,
+    tools: renderTools,
+    picks: renderPicksTool,
+    collectr: renderCollectrDiff,
     import: renderImport,
     reconcile: renderReconcile,
     history: renderHistory,
@@ -1510,6 +1613,35 @@ document.addEventListener('click', (e) => {
   if(delImportBtn){ deleteImportCards(delImportBtn.dataset.batch); return; }
   const importFilterBtn = e.target.closest('[data-action="import-filter"]');
   if(importFilterBtn){ importDetailFilter = importFilterBtn.dataset.value; render(); return; }
+  const hlToggle = e.target.closest('[data-action="binder-hl-toggle"]');
+  if(hlToggle){ toggleBinderHighlight(hlToggle.dataset.batch); render(); return; }
+  const hlDone = e.target.closest('[data-action="binder-hl-done"]');
+  if(hlDone){
+    confirmAction('Clear all the highlights? Anything you import from now on will be highlighted again.', () => { markBinderCaughtUp(); toast('Marked as placed.'); render(); });
+    return;
+  }
+  const cdRemove = e.target.closest('[data-action="collectr-remove"]');
+  if(cdRemove){
+    const c = STATE.collection.find(x => x.id === cdRemove.dataset.card); if(!c) return;
+    confirmAction(`Remove "${c.species||c.productName}" (${c.set} #${c.cardNumber}) from the app? It isn't in your latest Collectr export.`, () => { removeCardsFromApp([c.id]); toast('Card removed.'); render(); });
+    return;
+  }
+  const cdRemoveAll = e.target.closest('[data-action="collectr-remove-all"]');
+  if(cdRemoveAll){
+    const ids = collectrDiscrepancies().inAppOnly.map(c => c.id); if(!ids.length) return;
+    confirmAction(`Remove all ${ids.length} card${ids.length===1?'':'s'} that aren't in your latest Collectr export from the app? This can't be undone.`, () => { removeCardsFromApp(ids); toast(`${ids.length} card${ids.length===1?'':'s'} removed.`); render(); });
+    return;
+  }
+  const cdKeep = e.target.closest('[data-action="collectr-keep"]');
+  if(cdKeep){
+    const c = STATE.collection.find(x => x.id === cdKeep.dataset.card);
+    if(c){ c.keepInApp = true; persist('collection'); toast('Kept. It won\u2019t be flagged again.'); render(); }
+    return;
+  }
+  const cdRestore = e.target.closest('[data-action="collectr-restore"]');
+  if(cdRestore){ restoreRemovedCards([cdRestore.dataset.card]); toast('Added back.'); render(); return; }
+  const cdRestoreAll = e.target.closest('[data-action="collectr-restore-all"]');
+  if(cdRestoreAll){ const n = restoreRemovedCards(collectrDiscrepancies().inCollectrOnly.map(e2 => e2.id)); toast(`${n} card${n===1?'':'s'} added back.`); render(); return; }
   const dupSortBtn = e.target.closest('[data-action="dup-sort"]');
   if(dupSortBtn){ dupSort = dupSortBtn.dataset.value; render(); return; }
   const dupRemoveBtn = e.target.closest('[data-action="dup-remove"]');
@@ -1613,7 +1745,7 @@ function wireScreenEvents(routeId){
         GROUP_ORDER = JSON.parse(JSON.stringify(DEFAULT_GROUP_ORDER));
         CATEGORY_ORDER = JSON.parse(JSON.stringify(DEFAULT_CATEGORY_ORDER));
         SUBCATEGORY_ORDER = JSON.parse(JSON.stringify(DEFAULT_SUBCATEGORY_ORDER));
-        STATE = { collection:[], picks:{}, history:[], overrides:{}, settings:{ cloudSync:{enabled:false,syncCode:'',config:null} }, labelOverrides:{}, mergedLabels:{}, categoryOverrides:{}, manualOwned:{}, taxonomy:{ version:TAXONOMY_SCHEMA_VERSION, groups:GROUP_ORDER, categories:CATEGORY_ORDER, subcategories:SUBCATEGORY_ORDER }, familyOverrides:{}, customSpecies:[] };
+        STATE = { collection:[], picks:{}, history:[], overrides:{}, settings:{ cloudSync:{enabled:false,syncCode:'',config:null} }, labelOverrides:{}, mergedLabels:{}, categoryOverrides:{}, manualOwned:{}, taxonomy:{ version:TAXONOMY_SCHEMA_VERSION, groups:GROUP_ORDER, categories:CATEGORY_ORDER, subcategories:SUBCATEGORY_ORDER }, familyOverrides:{}, customSpecies:[], collectrSnapshot:null, removedInApp:{} };
         Object.keys(LS_KEYS).forEach(k => persist(k));
         rebuildBinder();
         toast('All data erased.');
@@ -1942,7 +2074,8 @@ function toggleBinderPick(cardId, speciesName){
 function deleteCard(cardId){
   const c = STATE.collection.find(x=>x.id===cardId);
   if(!c) return;
-  confirmAction(`Remove "${c.species||c.productName}" (${c.set} #${c.cardNumber}) from your collection?`, () => {
+  confirmAction(`Remove "${c.species||c.productName}" (${c.set} #${c.cardNumber}) from your collection?${c.importBatch ? ' Collectr will still have it until you delete it there too. It stays listed under Tools until you do, and imports will skip it.' : ''}`, () => {
+    recordAppRemovals([c]);
     STATE.collection = STATE.collection.filter(x=>x.id!==cardId);
     if(c.species && STATE.picks[c.species]===cardId) delete STATE.picks[c.species];
     persist('collection'); persist('picks');
@@ -2802,16 +2935,102 @@ function renderEvolutions(){
   `;
 }
 
+/* ============================================================
+   Binder highlights — mark the pockets whose binder card came in with
+   recent imports, so you can see what still has to be added to (or
+   changed in) the physical binder. By default that's every import you made
+   today, or every import since you last pressed "Mark all as placed".
+   You can tick other imports on or off at any time.
+   ============================================================ */
+function binderHlState(){
+  if(!STATE.settings.binderHl) STATE.settings.binderHl = { caughtUpAt:null, on:[], off:[] };
+  return STATE.settings.binderHl;
+}
+function binderHighlightedBatchIds(){
+  const st = binderHlState();
+  const since = st.caughtUpAt ? new Date(st.caughtUpAt).getTime() : null;
+  const todayStr = new Date().toDateString();
+  const ids = new Set();
+  STATE.history.forEach(b => {
+    if(b.cardsDeleted) return;
+    const t = new Date(b.date);
+    const byDefault = since != null ? t.getTime() > since : t.toDateString() === todayStr;
+    if(byDefault) ids.add(b.id);
+  });
+  (st.on||[]).forEach(id => { if(STATE.history.some(b => b.id===id && !b.cardsDeleted)) ids.add(id); });
+  (st.off||[]).forEach(id => ids.delete(id));
+  return ids;
+}
+/* species name -> 'new' | 'update' | 'imported' (only for the card that sits in the binder pocket) */
+function binderHighlights(){
+  const ids = binderHighlightedBatchIds();
+  const out = new Map();
+  if(!ids.size) return out;
+  const { items } = collectImportItems(STATE.history.filter(b => ids.has(b.id)));
+  items.forEach(it => {
+    const c = it.card;
+    if(!c.species || STATE.picks[c.species] !== c.id) return;
+    out.set(c.species, it.status==='new' ? 'new' : it.status==='update' ? 'update' : 'imported');
+  });
+  return out;
+}
+function toggleBinderHighlight(id){
+  const st = binderHlState();
+  const isOn = binderHighlightedBatchIds().has(id);
+  const on = new Set(st.on||[]), off = new Set(st.off||[]);
+  if(isOn){ if(on.has(id)) on.delete(id); else off.add(id); }
+  else { if(off.has(id)) off.delete(id); else on.add(id); }
+  st.on = [...on]; st.off = [...off];
+  persist('settings');
+}
+function markBinderCaughtUp(){
+  const st = binderHlState();
+  st.caughtUpAt = new Date().toISOString(); st.on = []; st.off = [];
+  persist('settings');
+}
+function binderHighlightPanelHTML(hl){
+  const imports = STATE.history.filter(b => !b.cardsDeleted);
+  if(!imports.length) return '';
+  const ids = binderHighlightedBatchIds();
+  const kinds = [...hl.values()];
+  const nNew = kinds.filter(k => k==='new').length, nUpd = kinds.filter(k => k==='update').length, nImp = kinds.filter(k => k==='imported').length;
+  const rank = k => k==='new' ? 0 : k==='imported' ? 1 : 2;
+  const pages = new Map();
+  hl.forEach((kind, sp) => {
+    const slot = binderSlotBySpecies.get(sp); if(!slot) return;
+    const cur = pages.get(slot.page);
+    if(cur === undefined || rank(kind) < rank(cur)) pages.set(slot.page, kind);
+  });
+  const pageList = [...pages.keys()].sort((a,b) => a-b);
+  const next = pageList.find(pg => pg > binderPage) ?? pageList[0];
+  const summary = hl.size
+    ? `<strong>${fmtInt(nNew)}</strong> new to add${nUpd ? ` · <strong>${fmtInt(nUpd)}</strong> updated` : ''}${nImp ? ` · <strong>${fmtInt(nImp)}</strong> from older imports (new or updated unknown)` : ''} · on <strong>${fmtInt(pageList.length)}</strong> page${pageList.length===1?'':'s'}`
+    : (ids.size ? 'Nothing from the ticked imports sits in the binder. Their cards are extras, or still need a binder pick (see Tools).' : 'Nothing highlighted. Tick an import below to see where its cards go.');
+  return `
+    <div class="card hl-panel">
+      <div class="hl-head">
+        <div><div class="hl-title">Recently imported</div><div class="hl-sum">${summary}</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${pageList.length ? `<button class="btn sm primary" data-goto-binder="${next}">Next page to update → Pg ${next}</button>` : ''}
+          ${ids.size ? `<button class="btn sm" data-action="binder-hl-done">Mark all as placed</button>` : ''}
+        </div>
+      </div>
+      <div class="import-chip-scroll" style="margin-top:8px;">${imports.map(b => `<button class="chip ${ids.has(b.id)?'active':''}" data-action="binder-hl-toggle" data-batch="${esc(b.id)}" title="${esc(new Date(b.date).toLocaleString())}">${esc(b.filename||'Import')} · ${esc(new Date(b.date).toLocaleDateString())} ${esc(new Date(b.date).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}))}</button>`).join('')}</div>
+      ${pageList.length ? `<div class="hl-pages"><span class="import-controls-label">Pages</span>${pageList.map(pg => `<button class="chip sm hl-pg hl-pg-${pages.get(pg)}" data-goto-binder="${pg}">${pg}</button>`).join('')}</div>` : ''}
+    </div>`;
+}
+
 function renderBinder(args){
   if(args[0]) binderPage = Math.max(1, Math.min(BINDER_MAX_PAGE, parseInt(args[0],10)||1));
   const slots = binderByPage.get(binderPage) || [];
   const byPocket = {};
   slots.forEach(s => byPocket[s.pocket] = s);
 
+  const hl = binderHighlights();
   const cells = [];
   for(let p=1;p<=9;p++){
     const slot = byPocket[p];
-    cells.push(renderPocket(slot, binderEditMode, mergeSelection));
+    cells.push(renderPocket(slot, binderEditMode, mergeSelection, hl));
   }
 
   return `
@@ -2834,6 +3053,7 @@ function renderBinder(args){
         <button class="btn ghost" data-action="redo-labels" ${labelRedoStack.length?'':'disabled'}>Redo ${ICONS.right||''}</button>
       </div>
     </div>` : ''}
+    ${binderHighlightPanelHTML(hl)}
     <div class="binder-toolbar">
       <button class="btn" id="binderPrev" ${binderPage<=1?'disabled':''}>${ICONS.left} Prev</button>
       <div style="display:flex;align-items:center;gap:10px;">
@@ -2845,7 +3065,7 @@ function renderBinder(args){
     <div class="binder-page"><div class="binder-grid">${cells.join('')}</div></div>
   `;
 }
-function renderPocket(slot, editMode, selection){
+function renderPocket(slot, editMode, selection, hl){
   if(!slot) return `<div class="pocket empty"></div>`;
   if(slot.type !== 'POKÉMON'){
     const mergedInto = STATE.mergedLabels[slot.key];
@@ -2880,9 +3100,12 @@ function renderPocket(slot, editMode, selection){
   const sp = speciesByName.get(slot.display);
   const taxLabel = sp ? taxBreadcrumb(sp) : '';
   const fromName = sp ? evolvesFrom(sp) : null;
-  const cls = ['pocket', owned?'owned':'missing', pick?'haspick':''].join(' ').trim();
+  const mark = hl ? hl.get(slot.display) : null;
+  const cls = ['pocket', owned?'owned':'missing', pick?'haspick':'', mark?'hl-'+mark:''].join(' ').trim();
+  const markLabel = { new:['✦ NEW','New from a recent import: add it to the binder'], update:['↻ UPDATED','Updated by a recent import (quantity or price changed)'], imported:['● IMPORTED','Came in with a recent import (older import: not known whether new or updated)'] }[mark];
   return `
     <div class="${cls}" data-nav-species="${esc(slot.display)}">
+      ${mark ? `<span class="hl-badge hl-badge-${mark}" title="${esc(markLabel[1])}">${markLabel[0]}</span>` : ''}
       ${owned && sp ? `<div class="pocket-art">${speciesImgTag(sp,'pocket-img')}</div>` : ''}
       <div class="pocket-overlay">
         <div class="top">
@@ -3071,7 +3294,7 @@ function renderImport(){
   }
 
   const { items } = importState.preview;
-  const counts = { new:0, update:0, duplicate:0, review:0 };
+  const counts = { new:0, update:0, duplicate:0, review:0, held:0 };
   items.forEach(i => counts[i.status]++);
   const reviewItems = items.filter(i=>i.status==='review');
   const visibleItems = items.slice(0, 400); // cap render for very large imports
@@ -3086,6 +3309,7 @@ function renderImport(){
       <div class="cell"><div class="n">${counts.update}</div><div class="l">Quantity / price changes</div></div>
       <div class="cell"><div class="n">${counts.duplicate}</div><div class="l">Already in collection</div></div>
       <div class="cell"><div class="n">${counts.review}</div><div class="l">Needs review</div></div>
+      ${counts.held ? `<div class="cell"><div class="n">${counts.held}</div><div class="l">Held back — removed in the app</div></div>` : ''}
     </div>
 
     ${reviewItems.length ? `
@@ -3124,7 +3348,7 @@ function renderImport(){
   `;
 }
 function statusLabel(s){
-  return { new:'New', update:'Update', duplicate:'Unchanged', review:'Needs review' }[s] || s;
+  return { new:'New', update:'Update', duplicate:'Unchanged', review:'Needs review', held:'Held back' }[s] || s;
 }
 
 function handleImportFile(file){
@@ -3188,7 +3412,7 @@ function doCommitImport(){
 function finishCommit(){
   const { batch, touchedSpecies } = commitImport(importState.preview, importState.filename, importState.portfolio);
   autoAssignSinglePicks(touchedSpecies);
-  toast(`Import complete — ${batch.added} new, ${batch.updated} updated.`);
+  toast(`Import complete — ${batch.added} new, ${batch.updated} updated.${batch.heldBack ? ' '+batch.heldBack+' held back (removed in the app, still in Collectr).' : ''}`);
   resetImportState();
   const needsReconcile = speciesNeedingPickReconciliation(touchedSpecies);
   if(needsReconcile.length){
@@ -3217,7 +3441,7 @@ function renderReconcile(){
   }
   return `
     <div class="pagehead">
-      <div><h1>Binder picks needed</h1><div class="sub">${fmtInt(remaining.length)} species from this import have more than one card and no binder pick yet — choose which card goes in the main binder for each. Anything left unchosen just stays in the extras binder for now.</div></div>
+      <div><h1>Binder picks needed</h1><div class="sub">${fmtInt(remaining.length)} species from this import have more than one card and no binder pick yet — choose which card goes in the main binder for each. Anything left unchosen just stays in the extras binder for now. You can also do this any time under Tools → Binder picks.</div></div>
     </div>
     <div class="cardlist">
       ${remaining.map(name => renderReconcileSpecies(name)).join('')}
@@ -3470,7 +3694,8 @@ function deleteImportCards(arg){
   const msg = anyUntracked
     ? `${many?'Some of these imports were':'This import was'} made before new-vs-updated tracking, so I can\u2019t tell which cards ${many?'were':'was'} already in your collection. Deleting removes ${fmtInt(n)} card${n===1?'':'s'}${kept?' (the ones I do know were only updated, '+fmtInt(kept)+', will be kept)':''}. This can\u2019t be undone.`
     : `Delete the ${fmtInt(n)} card${n===1?'':'s'} ${many?'these imports':'this import'} added?${kept ? ` The ${fmtInt(kept)} card${kept===1?'':'s'} only updated will be kept, since ${kept===1?'it was':'they were'} already in your collection.` : ''} This can\u2019t be undone.`;
-  confirmAction(msg, () => {
+  confirmAction(msg + ' Collectr will still have these cards until you delete them there too; they stay listed under Tools until you do, and future imports will skip them.', () => {
+    recordAppRemovals(toRemove.map(i => i.card));
     const rm = new Set(toRemove.map(i => i.card.id));
     const species = new Set(toRemove.map(i => i.card.species).filter(Boolean));
     STATE.collection = STATE.collection.filter(c => !rm.has(c.id));
@@ -3481,6 +3706,89 @@ function deleteImportCards(arg){
     toast(`${fmtInt(rm.size)} card${rm.size===1?'':'s'} deleted.`);
     render();
   });
+}
+
+/* ============================================================
+   Tools hub + Binder picks + Collectr differences
+   ============================================================ */
+function renderTools(){
+  const st = toolsStatus();
+  const d = collectrDiscrepancies();
+  const tool = (route, icon, title, desc, n, statusText) => `
+    <button class="card toolcard" data-nav="${route}">
+      <div class="toolcard-ico">${ICONS[icon]}</div>
+      <div class="toolcard-body">
+        <div class="toolcard-title">${title}${n ? redDotHTML() : ''}</div>
+        <div class="toolcard-desc">${desc}</div>
+        <div class="toolcard-status ${n?'need':'ok'}">${statusText}</div>
+      </div>
+    </button>`;
+  const diffStatus = !d.hasSnapshot ? 'Import your latest Collectr file to start comparing'
+    : st.diffs===0 ? 'In sync with your latest import'
+    : `${fmtInt(d.inAppOnly.length)} only in the app · ${fmtInt(d.inCollectrOnly.length)} only in Collectr`;
+  return `
+    <div class="pagehead"><div><h1>Tools${st.total ? redDotHTML() : ''}</h1>
+      <div class="sub">${st.total ? 'A red dot means that tool has something waiting for you. It goes away once it\u2019s resolved.' : 'Everything is taken care of.'}</div></div></div>
+    ${tool('collectr','import','Collectr differences','Cards you deleted in the app but not in Collectr, or in Collectr but not in the app.',st.diffs,diffStatus)}
+    ${tool('picks','star','Binder picks','Pokémon with more than one card that still need you to choose which goes in the binder.',st.picks, st.picks ? `${fmtInt(st.picks)} Pokémon need a pick` : 'All set')}
+    ${tool('duplicates','dupes','Foil + Regular','Cards where you own both a foil and a regular of the same card.',st.pairs, st.pairs ? `${fmtInt(st.pairs)} card${st.pairs===1?'':'s'} to review` : 'None found')}
+  `;
+}
+
+function renderPicksTool(){
+  const list = speciesNeedingPickReconciliation();
+  return `
+    <div class="pagehead"><div><h1>Binder picks${list.length ? redDotHTML() : ''}</h1>
+      <div class="sub">${list.length ? `${fmtInt(list.length)} Pokémon ${list.length===1?'has':'have'} more than one card and no binder pick. Choose which card goes in the main binder for each; anything you leave stays in the extras binder.` : 'Every Pokémon with more than one card has a binder pick.'}</div></div>
+      <button class="btn" data-nav="tools">← Tools</button></div>
+    ${list.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>All set</h3></div>` : `<div class="cardlist">${list.map(name => renderReconcileSpecies(name)).join('')}</div>`}
+  `;
+}
+
+function diffCardLine(c){
+  const isPick = c.species && STATE.picks[c.species] === c.id;
+  return `<div class="set">${esc(c.set)} · #${esc(c.cardNumber)}${c.variance?(' · '+esc(c.variance)):''} · ${esc(c.condition)} · Qty ${c.quantity}</div>${isPick ? '<span class="badge pick">★ Binder pick</span>' : ''}`;
+}
+function renderCollectrDiff(){
+  const d = collectrDiscrepancies();
+  const total = d.inAppOnly.length + d.inCollectrOnly.length;
+  const head = sub => `<div class="pagehead"><div><h1>Collectr differences${total ? redDotHTML() : ''}</h1><div class="sub">${sub}</div></div><button class="btn" data-nav="tools">← Tools</button></div>`;
+  if(!d.hasSnapshot){
+    return head('Nothing to compare yet') + `<div class="emptystate card">${ICONS.empty}<h3>Import your latest Collectr file once</h3>
+      <p>This page compares what\u2019s in the app with your most recent Collectr export. Imports from before this feature don\u2019t record what Collectr had, so import your latest file and it will start working.</p>
+      <button class="btn primary" data-nav="import">Go to Import</button></div>`;
+  }
+  const snap = d.snapshot;
+  const when = `${esc(snap.filename||'your last import')} on ${esc(new Date(snap.date).toLocaleDateString())}`;
+  const nm = c => (c.species || c.productName || '').toLowerCase();
+  const A = d.inAppOnly.slice().sort((a,b) => nm(a).localeCompare(nm(b)) || String(a.set).localeCompare(String(b.set)));
+  const B = d.inCollectrOnly.slice().sort((a,b) => String(b.removedAt).localeCompare(String(a.removedAt)));
+  const rowA = c => {
+    const sp = c.species ? speciesByName.get(c.species) : null;
+    return `<div class="cardrow"><div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
+      <div class="info"><div style="font-family:var(--font-display);font-weight:600;">${esc(c.species||c.productName)}</div>${diffCardLine(c)}
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn sm" data-action="collectr-remove" data-card="${esc(c.id)}">${ICONS.trash} Remove from app</button>
+          <button class="btn sm ghost" data-action="collectr-keep" data-card="${esc(c.id)}">Keep in app</button>
+        </div></div></div>`;
+  };
+  const rowB = e => {
+    const c = e.card; const sp = c.species ? speciesByName.get(c.species) : null;
+    return `<div class="cardrow"><div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
+      <div class="info"><div style="font-family:var(--font-display);font-weight:600;">${esc(c.species||c.productName)}</div>
+        <div class="set">${esc(c.set)} · #${esc(c.cardNumber)}${c.variance?(' · '+esc(c.variance)):''} · ${esc(c.condition)} · Qty ${c.quantity}</div>
+        <div class="meta">Removed here ${esc(new Date(e.removedAt).toLocaleDateString())} · still in Collectr</div>
+        <div style="margin-top:6px;"><button class="btn sm" data-action="collectr-restore" data-card="${esc(e.id)}">Add back to app</button></div></div></div>`;
+  };
+  return head(total ? `Compared with ${when}` : `In sync with ${when}`) + `
+    ${total===0 ? `<div class="emptystate card">${ICONS.empty}<h3>Everything matches</h3><p>Nothing is in one place and missing from the other, as of ${when}.</p></div>` : ''}
+    <div class="section-title">Deleted in Collectr, still in the app (${fmtInt(A.length)})</div>
+    <div class="card" style="padding:12px;margin-bottom:10px;">These cards came from Collectr but aren\u2019t in your latest export. If you deleted them there, remove them here too. (A card whose condition or finish was edited in Collectr shows up here as the old version, and the edited one imports as a new card.) Choose <em>Keep in app</em> for any you want to keep anyway.</div>
+    ${A.length ? `<div style="margin-bottom:10px;"><button class="btn accent" data-action="collectr-remove-all">Remove all ${fmtInt(A.length)} from the app</button></div><div class="cardlist">${A.map(rowA).join('')}</div>` : `<div class="emptystate card" style="margin-bottom:16px;"><h3>None</h3></div>`}
+    <div class="section-title" style="margin-top:22px;">Removed in the app, still in Collectr (${fmtInt(B.length)})</div>
+    <div class="card" style="padding:12px;margin-bottom:10px;">You removed these here, but Collectr\u2019s latest export still lists them. Delete them in Collectr too. Until you do, imports skip them so they don\u2019t come back. After you delete them in Collectr and import again, they disappear from this list. Changed your mind? Add them back.</div>
+    ${B.length ? `<div style="margin-bottom:10px;"><button class="btn" data-action="collectr-restore-all">Add all ${fmtInt(B.length)} back to the app</button></div><div class="cardlist">${B.map(rowB).join('')}</div>` : `<div class="emptystate card"><h3>None</h3></div>`}
+  `;
 }
 
 /* ============================================================
@@ -3510,8 +3818,8 @@ function renderDuplicates(){
       </div>`;
   };
   return `
-    <div class="pagehead"><div><h1>Foil + Regular</h1>
-      <div class="sub">${groups.length ? `${fmtInt(groups.length)} card${groups.length===1?'':'s'} where you own both a foil and a regular · ${fmtInt(nRegular)} regular cop${nRegular===1?'y':'ies'} to review` : 'Nothing to review'}</div></div></div>
+    <div class="pagehead"><div><h1>Foil + Regular${groups.length ? redDotHTML() : ''}</h1>
+      <div class="sub">${groups.length ? `${fmtInt(groups.length)} card${groups.length===1?'':'s'} where you own both a foil and a regular · ${fmtInt(nRegular)} regular cop${nRegular===1?'y':'ies'} to review` : 'Nothing to review'}</div></div><button class="btn" data-nav="tools">← Tools</button></div>
     ${groups.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>No foil + regular pairs</h3><p>You don't own a foil and a regular of the same card anywhere in your collection.</p></div>` : `
     <div class="import-controls"><div class="import-controls-row"><span class="import-controls-label">Sort</span>${chip('alpha','A–Z')}${chip('binder','Binder order')}</div></div>
     <div class="card" style="padding:12px;margin-bottom:12px;">Nothing here is removed automatically. The regular copies are marked in red so you can find and delete them (in Collectr, or with the Remove button here). The foil copies are never touched.</div>
@@ -3629,6 +3937,8 @@ function applyRemoteState(remote){
   STATE.picks = remote.picks || {};
   STATE.history = remote.history || [];
   STATE.overrides = remote.overrides || {};
+  STATE.collectrSnapshot = remote.collectrSnapshot || null;
+  STATE.removedInApp = remote.removedInApp || {};
   const keepCloudSync = STATE.settings.cloudSync;
   STATE.settings.cloudSync = keepCloudSync;
   STATE.settings.cloudSync.lastPushedAt = remote.updatedAt || Date.now();
@@ -3658,6 +3968,7 @@ async function pushToCloud(){
   const now = Date.now();
   const payload = {
     collection: STATE.collection, picks: STATE.picks, history: STATE.history, overrides: STATE.overrides,
+    collectrSnapshot: STATE.collectrSnapshot || null, removedInApp: STATE.removedInApp || {},
     updatedAt: now,
   };
   try{
@@ -3821,6 +4132,8 @@ function restoreBackup(file){
           taxonomy: data.taxonomy || { groups: JSON.parse(JSON.stringify(DEFAULT_GROUP_ORDER)), categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORY_ORDER)), subcategories: JSON.parse(JSON.stringify(DEFAULT_SUBCATEGORY_ORDER)) },
           familyOverrides: data.familyOverrides||{},
           customSpecies: data.customSpecies||[],
+          collectrSnapshot: data.collectrSnapshot||null,
+          removedInApp: data.removedInApp||{},
         };
         GROUP_ORDER = STATE.taxonomy.groups;
         CATEGORY_ORDER = STATE.taxonomy.categories;
