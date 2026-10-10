@@ -166,6 +166,10 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .badge.review{background:#f6dede;color:var(--crimson);}
 .badge.dup{background:var(--paper-sunken);color:var(--ink-soft);}
 .badge.dupwarn{background:#f6dede;color:var(--crimson);cursor:help;}
+.pair-card{padding:14px;margin-bottom:10px;}
+.pair-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-radius:8px;margin-top:4px;}
+.pair-line.regular{background:#f6dede;}
+.pair-line.foil{background:#e4ede1;}
 .import-controls{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
 .import-controls-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .import-controls-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);min-width:52px;}
@@ -579,6 +583,7 @@ const ICONS = {
   photo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.7"/><path d="M21 15l-5-5-11 11"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="4 12.5 9.5 18 20 6"/></svg>',
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  dupes:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="12" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4"/></svg>',
   more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2.1"/><circle cx="12" cy="12" r="2.1"/><circle cx="19" cy="12" r="2.1"/></svg>',
 };
 
@@ -860,6 +865,42 @@ function speciesNeedingPickReconciliation(onlySpecies){
    twice by Collectr rather than two different cards. Returns a Map from
    cardId to the other card(s) in its group, for flagging in the collection
    list. */
+/* "regular" | "foil" | "other" from Collectr's Variance text. */
+function finishKind(variance){
+  const v = norm(variance||'');
+  if(!v || ['normal','regular','standard','none','unlimited'].includes(v) || /\bnon[- ]?(holo|foil)/.test(v)) return 'regular';
+  if(v.includes('holo') || v.includes('foil')) return 'foil';
+  return 'other';
+}
+/* Every card where you own BOTH a foil and a regular of the same card
+   (same species + set + card number). Returns one entry per card. */
+function foilRegularGroups(){
+  const groups = new Map();
+  STATE.collection.forEach(c => {
+    const who = c.species || c.productName;
+    if(!who || !c.set || !c.cardNumber) return;
+    const key = [norm(who), norm(c.set), norm(c.cardNumber)].join('|');
+    if(!groups.has(key)) groups.set(key, { species:c.species||null, name:who, set:c.set, cardNumber:c.cardNumber, regulars:[], foils:[] });
+    const g = groups.get(key), kind = finishKind(c.variance);
+    if(kind==='regular') g.regulars.push(c); else if(kind==='foil') g.foils.push(c);
+  });
+  return [...groups.values()].filter(g => g.regulars.length && g.foils.length);
+}
+function foilRegularCardIds(){
+  const ids = new Set();
+  foilRegularGroups().forEach(g => { g.regulars.forEach(c => ids.add(c.id)); g.foils.forEach(c => ids.add(c.id)); });
+  return ids;
+}
+function dupBadgeHTML(c, dupMap, pairSet){
+  if(pairSet && pairSet.has(c.id)){
+    return `<span class="badge dupwarn" data-nav="duplicates" style="cursor:pointer;" title="You own both a foil and a regular of this card. Tap to see them all in one place.">⚠ Foil + regular</span>`;
+  }
+  const g = dupMap ? dupMap.get(c.id) : null;
+  if(!g) return '';
+  const t = `Same set &amp; card number as ${g.map(x=>esc(x.variance||'Regular')).join(', ')} — likely the same physical card logged twice.`;
+  return `<span class="badge dupwarn" title="${t}">⚠ Possible duplicate finish</span>`;
+}
+
 function finishDuplicateGroups(){
   const groups = new Map();
   STATE.collection.forEach(c => {
@@ -1152,6 +1193,8 @@ function commitImport(preview, filename, chosenPortfolio){
   const batchId = uid();
   const touchedSpecies = new Set();
   const newIds = [], updatedIds = [];
+  const ownedBefore = new Set(STATE.collection.filter(c => c.species).map(c => c.species));
+  const idSpecies = new Map();
   for(const item of preview.items){
     const species = item.species || (item.manualSpecies || null);
     if(!species && !item.acceptUnlinked){
@@ -1179,7 +1222,7 @@ function commitImport(preview, filename, chosenPortfolio){
       notes: item.row.notes,
       importBatch: batchId,
     };
-    if(species) touchedSpecies.add(species);
+    if(species){ touchedSpecies.add(species); idSpecies.set(rec.id, species); }
     if(item.status === 'new' || (item.status==='review' && !item.existing)){
       STATE.collection.push(rec);
       added++; newIds.push(rec.id);
@@ -1190,6 +1233,17 @@ function commitImport(preview, filename, chosenPortfolio){
       unchanged++;
     }
   }
+  // A Pokémon you had no cards of before this import: every card of it in the
+  // import counts as NEW, even if one of them matched an older unlinked record.
+  const newSpecies = [...touchedSpecies].filter(sp => !ownedBefore.has(sp));
+  if(newSpecies.length){
+    const ns = new Set(newSpecies);
+    const moved = updatedIds.filter(id => ns.has(idSpecies.get(id)));
+    if(moved.length){
+      moved.forEach(id => { updatedIds.splice(updatedIds.indexOf(id),1); newIds.push(id); });
+      updated -= moved.length; added += moved.length;
+    }
+  }
   if(learned) persist('overrides');
   persist('collection');
   const batch = {
@@ -1197,7 +1251,7 @@ function commitImport(preview, filename, chosenPortfolio){
     portfolio: chosenPortfolio,
     totalRows: preview.totalRows, inScope: preview.inScopeCount,
     added, updated, unchanged, reviewSkipped,
-    newIds, updatedIds,
+    newIds, updatedIds, newSpecies,
   };
   STATE.history.unshift(batch);
   persist('history');
@@ -1251,6 +1305,7 @@ const ROUTES = [
   { id:'evolutions', label:'Evolutions', icon:'evolutions' },
   { id:'binder', label:'Binder', icon:'binder' },
   { id:'extras', label:'Extras Binder', icon:'extras' },
+  { id:'duplicates', label:'Foil + Regular', icon:'dupes' },
   { id:'import', label:'Import', icon:'import' },
   { id:'history', label:'Import History', icon:'history' },
   { id:'settings', label:'Settings', icon:'settings' },
@@ -1304,6 +1359,7 @@ let reconcileQueue = [];
 let reconcileReturnHash = '#/history';
 let importDetailFilter = 'all';
 let importDetailSort = 'recent';
+let dupSort = 'alpha';
 let importSelection = new Set();
 function render(){
   const { id, args } = currentRoute();
@@ -1331,6 +1387,7 @@ function render(){
     evolutions: renderEvolutions,
     binder: renderBinder,
     extras: renderExtras,
+    duplicates: renderDuplicates,
     import: renderImport,
     reconcile: renderReconcile,
     history: renderHistory,
@@ -1453,6 +1510,10 @@ document.addEventListener('click', (e) => {
   if(delImportBtn){ deleteImportCards(delImportBtn.dataset.batch); return; }
   const importFilterBtn = e.target.closest('[data-action="import-filter"]');
   if(importFilterBtn){ importDetailFilter = importFilterBtn.dataset.value; render(); return; }
+  const dupSortBtn = e.target.closest('[data-action="dup-sort"]');
+  if(dupSortBtn){ dupSort = dupSortBtn.dataset.value; render(); return; }
+  const dupRemoveBtn = e.target.closest('[data-action="dup-remove"]');
+  if(dupRemoveBtn){ deleteCard(dupRemoveBtn.dataset.card); return; }
   const importSortBtn = e.target.closest('[data-action="import-sort"]');
   if(importSortBtn){ importDetailSort = importSortBtn.dataset.value; render(); return; }
   const impSelBox = e.target.closest('[data-action="toggle-import-select"]');
@@ -1716,17 +1777,15 @@ function renderCollection(){
 
     ${rows.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>No matching cards</h3><p>${STATE.collection.length===0 ? 'Import your Collectr export to add cards.' : 'Try adjusting your filters.'}</p></div>` : `
     <div class="cardlist">
-      ${(() => { const dupMap = finishDuplicateGroups(); return rows.map(c => renderCardRow(c, dupMap)).join(''); })()}
+      ${(() => { const dupMap = finishDuplicateGroups(); const pairSet = foilRegularCardIds(); return rows.map(c => renderCardRow(c, dupMap, pairSet)).join(''); })()}
     </div>`}
   `;
 }
 
-function renderCardRow(c, dupMap){
+function renderCardRow(c, dupMap, pairSet){
   const sp = c.species ? speciesByName.get(c.species) : null;
   const isPick = c.species && STATE.picks[c.species] === c.id;
   const taxLabel = sp ? taxBreadcrumb(sp) : null;
-  const dupGroup = dupMap ? dupMap.get(c.id) : null;
-  const dupTitle = dupGroup ? `Same set &amp; card number as ${dupGroup.map(x=>esc(x.variance||'Regular')).join(', ')} — likely the same physical card logged twice. Consider deleting one from Collectr.` : '';
   return `
     <div class="cardrow" data-card="${c.id}">
       <div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
@@ -1736,7 +1795,7 @@ function renderCardRow(c, dupMap){
           ${taxLabel ? `<span class="chip sm taxchip">${esc(taxLabel)}</span>` : ''}
           ${!c.species ? `<span class="badge review">Needs species</span>` : ''}
           ${isPick ? `<span class="badge pick">★ Binder pick</span>` : ''}
-          ${dupGroup ? `<span class="badge dupwarn" title="${dupTitle}">⚠ Possible duplicate finish</span>` : ''}
+          ${dupBadgeHTML(c, dupMap, pairSet)}
         </div>
         <div class="set">${esc(c.set)} · #${esc(c.cardNumber)} · ${esc(c.rarity)}${c.variance?(' · '+esc(c.variance)):''}</div>
         <div class="meta">${esc(c.condition)} · Qty ${c.quantity} · Added ${esc(c.dateAdded)}</div>
@@ -3234,7 +3293,9 @@ function collectImportItems(batches){
   const byId = new Map(STATE.collection.map(c => [c.id, c]));
   const merged = new Map();
   let anyUntracked = false;
+  const newSpecies = new Set();
   batches.forEach(batch => {
+    (batch.newSpecies||[]).forEach(n => newSpecies.add(n));
     const bi = STATE.history.indexOf(batch);
     const tracked = Array.isArray(batch.newIds) || Array.isArray(batch.updatedIds);
     if(!tracked) anyUntracked = true;
@@ -3243,6 +3304,7 @@ function collectImportItems(batches){
       const ex = merged.get(id);
       if(!ex){ merged.set(id, { card:c, status, batch, batchIndex:bi, order:merged.size }); return; }
       if(status==='new' || ex.status==='new') ex.status = 'new';
+      else if(ex.status==='unknown') ex.status = status;
       if(bi < ex.batchIndex){ ex.batch = batch; ex.batchIndex = bi; }
     };
     if(tracked){
@@ -3252,7 +3314,7 @@ function collectImportItems(batches){
       STATE.collection.filter(c => c.importBatch === batch.id).forEach(c => add(c.id,'unknown'));
     }
   });
-  return { items:[...merged.values()], anyUntracked };
+  return { items:[...merged.values()], anyUntracked, newSpecies };
 }
 
 /* Where one card ends up: main binder page/pocket, the extras binder, or nowhere yet. */
@@ -3300,11 +3362,10 @@ function sortImportItems(items, mode){
   return arr;
 }
 
-function renderImportRow(it, showSource, dupMap){
+function renderImportRow(it, showSource, dupMap, pairSet, newSpeciesSet){
   const c = it.card;
   const sp = c.species ? speciesByName.get(c.species) : null;
   const taxLabel = sp ? taxBreadcrumb(sp) : null;
-  const dupGroup = dupMap.get(c.id);
   return `
     <div class="cardrow">
       <div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
@@ -3312,7 +3373,8 @@ function renderImportRow(it, showSource, dupMap){
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-family:var(--font-display);font-weight:600;">${esc(c.species || c.productName)}</span>
           ${it.status==='new' ? '<span class="badge new">NEW</span>' : it.status==='update' ? '<span class="badge update">UPDATED</span>' : ''}
-          ${dupGroup ? '<span class="badge dupwarn" title="Same set &amp; card number as another card with a different finish — likely the same physical card logged twice.">⚠ Possible duplicate finish</span>' : ''}
+          ${c.species && newSpeciesSet && newSpeciesSet.has(c.species) ? '<span class="badge pick" title="You had no cards of this Pokémon before this import">New Pokémon</span>' : ''}
+          ${dupBadgeHTML(c, dupMap, pairSet)}
         </div>
         <div class="set">${esc(c.set)} · #${esc(c.cardNumber)} · ${esc(c.rarity)}${c.variance?(' · '+esc(c.variance)):''}</div>
         <div class="meta">${esc(c.condition)} · Qty ${c.quantity}${taxLabel ? ' · '+esc(taxLabel) : ''}${showSource ? ' · from '+esc(it.batch.filename||'import') : ''}</div>
@@ -3328,14 +3390,20 @@ function renderImportDetail(ids){
       <div class="emptystate card">${ICONS.empty}<h3>That import isn't in your history</h3><button class="btn" data-action="view-import-list">Back to import history</button></div>`;
   }
   const multi = batches.length > 1;
-  const { items, anyUntracked } = collectImportItems(batches);
+  const { items, anyUntracked, newSpecies: newSpeciesSet } = collectImportItems(batches);
+  const dupMap = finishDuplicateGroups();
+  const pairSet = foilRegularCardIds();
   const nNew = items.filter(i => i.status==='new').length;
   const nUpd = items.filter(i => i.status==='update').length;
+  const nUnk = items.filter(i => i.status==='unknown').length;
+  const nPair = items.filter(i => pairSet.has(i.card.id)).length;
+  const nNewPoke = [...new Set(items.filter(i => i.card.species && newSpeciesSet.has(i.card.species)).map(i => i.card.species))].length;
   let shown = items;
   if(importDetailFilter==='new') shown = items.filter(i => i.status==='new');
   if(importDetailFilter==='update') shown = items.filter(i => i.status==='update');
+  if(importDetailFilter==='unknown') shown = items.filter(i => i.status==='unknown');
+  if(importDetailFilter==='pair') shown = items.filter(i => pairSet.has(i.card.id));
   shown = sortImportItems(shown, importDetailSort);
-  const dupMap = finishDuplicateGroups();
   const allDeleted = batches.every(b => b.cardsDeleted);
   const idList = batches.map(b => b.id).join(',');
   const chip = (attr,val,cur,label) => `<button class="chip ${cur===val?'active':''}" data-action="${attr}" data-value="${val}">${label}</button>`;
@@ -3356,16 +3424,16 @@ function renderImportDetail(ids){
     });
     body = groups.map(g => `
       <div class="import-group-head">${esc(g.label)} <span style="font-weight:400;">· ${fmtInt(g.rows.length)}</span></div>
-      <div class="cardlist">${g.rows.map(it => renderImportRow(it, multi, dupMap)).join('')}</div>`).join('');
+      <div class="cardlist">${g.rows.map(it => renderImportRow(it, multi, dupMap, pairSet, newSpeciesSet)).join('')}</div>`).join('');
   } else {
-    body = `<div class="cardlist">${shown.map(it => renderImportRow(it, multi, dupMap)).join('')}</div>`;
+    body = `<div class="cardlist">${shown.map(it => renderImportRow(it, multi, dupMap, pairSet, newSpeciesSet)).join('')}</div>`;
   }
 
   return `
     <div class="pagehead">
       <div>
         <h1>${multi ? fmtInt(batches.length)+' imports together' : esc(batches[0].filename||'Import')}</h1>
-        <div class="sub">${multi ? '' : esc(new Date(batches[0].date).toLocaleString())+' · '}${anyUntracked ? `${fmtInt(items.length)} cards` : `${fmtInt(nNew)} new · ${fmtInt(nUpd)} updated`}${allDeleted ? ' · cards deleted' : ''}</div>
+        <div class="sub">${multi ? '' : esc(new Date(batches[0].date).toLocaleString())+' · '}${fmtInt(nNew)} new · ${fmtInt(nUpd)} updated${nUnk ? ` · ${fmtInt(nUnk)} from older imports (no label)` : ''}${nNewPoke ? ` · ${fmtInt(nNewPoke)} new Pokémon` : ''}${allDeleted ? ' · cards deleted' : ''}</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" data-action="view-import-list">All imports</button>
@@ -3376,14 +3444,14 @@ function renderImportDetail(ids){
       <div class="import-controls-row"><span class="import-controls-label">Sort</span>
         ${chip('import-sort','recent',importDetailSort,'Most recent import')}${chip('import-sort','alpha',importDetailSort,'A–Z')}${chip('import-sort','binder',importDetailSort,'Binder order')}
       </div>
-      ${anyUntracked ? '' : `<div class="import-controls-row"><span class="import-controls-label">Show</span>
-        ${chip('import-filter','all',importDetailFilter,'All ('+fmtInt(items.length)+')')}${chip('import-filter','new',importDetailFilter,'New ('+fmtInt(nNew)+')')}${chip('import-filter','update',importDetailFilter,'Updated ('+fmtInt(nUpd)+')')}
-      </div>`}
+      <div class="import-controls-row"><span class="import-controls-label">Show</span>
+        ${chip('import-filter','all',importDetailFilter,'All ('+fmtInt(items.length)+')')}${chip('import-filter','new',importDetailFilter,'New ('+fmtInt(nNew)+')')}${chip('import-filter','update',importDetailFilter,'Updated ('+fmtInt(nUpd)+')')}${nUnk ? chip('import-filter','unknown',importDetailFilter,'Older imports, no label ('+fmtInt(nUnk)+')') : ''}${chip('import-filter','pair',importDetailFilter,'Foil + regular ('+fmtInt(nPair)+')')}
+      </div>
       <div class="import-controls-row"><span class="import-controls-label">Imports</span>
         <div class="import-chip-scroll">${STATE.history.map(b => `<button class="chip ${idList.split(',').includes(b.id)?'active':''}" data-action="toggle-detail-import" data-batch="${esc(b.id)}" title="${esc(new Date(b.date).toLocaleString())}">${esc(b.filename||'Import')} · ${esc(new Date(b.date).toLocaleDateString())}</button>`).join('')}</div>
       </div>
     </div>
-    ${anyUntracked ? `<div class="card" style="padding:12px;margin-bottom:12px;">At least one of these imports was made before new-vs-updated tracking existed, so its cards have no New/Updated label.</div>` : ''}
+    ${nUnk ? `<div class="card" style="padding:12px;margin-bottom:12px;">Some of these imports were made before new-vs-updated tracking existed, so their cards can't be labelled New or Updated. They're grouped under \u201cOlder imports, no label\u201d.</div>` : ''}
     ${body}
   `;
 }
@@ -3413,6 +3481,58 @@ function deleteImportCards(arg){
     toast(`${fmtInt(rm.size)} card${rm.size===1?'':'s'} deleted.`);
     render();
   });
+}
+
+/* ============================================================
+   Foil + Regular — every card where you own BOTH a foil and a regular of
+   the same card, in one place. Nothing is removed automatically; the
+   Remove button only appears on the regular copies, and asks first.
+   ============================================================ */
+function renderDuplicates(){
+  let groups = foilRegularGroups();
+  const nRegular = groups.reduce((a,g) => a + g.regulars.length, 0);
+  const nm = g => g.name.toLowerCase();
+  if(dupSort === 'binder'){
+    const slotOf = g => { const sl = g.species ? binderSlotBySpecies.get(g.species) : null; return sl ? sl.slot : 1e9; };
+    groups.sort((a,b) => slotOf(a)-slotOf(b) || nm(a).localeCompare(nm(b)) || String(a.set).localeCompare(String(b.set)));
+  } else {
+    groups.sort((a,b) => nm(a).localeCompare(nm(b)) || String(a.set).localeCompare(String(b.set)) || String(a.cardNumber).localeCompare(String(b.cardNumber), undefined, {numeric:true}));
+  }
+  const chip = (val,label) => `<button class="chip ${dupSort===val?'active':''}" data-action="dup-sort" data-value="${val}">${label}</button>`;
+  const line = (c, kind) => {
+    const isPick = c.species && STATE.picks[c.species] === c.id;
+    return `
+      <div class="pair-line ${kind}">
+        <span class="badge ${kind==='regular'?'review':'owned'}">${kind==='regular'?'Regular':'Foil'}</span>
+        <span class="set">${esc(c.variance||'Regular')} · ${esc(c.condition)} · Qty ${c.quantity}${c.marketPrice?' · $'+Number(c.marketPrice).toFixed(2):''}</span>
+        ${isPick ? '<span class="badge pick">★ Binder pick</span>' : ''}
+        ${kind==='regular' ? `<button class="btn sm ghost" data-action="dup-remove" data-card="${esc(c.id)}" title="Remove this regular copy from the app">${ICONS.trash} Remove</button>` : ''}
+      </div>`;
+  };
+  return `
+    <div class="pagehead"><div><h1>Foil + Regular</h1>
+      <div class="sub">${groups.length ? `${fmtInt(groups.length)} card${groups.length===1?'':'s'} where you own both a foil and a regular · ${fmtInt(nRegular)} regular cop${nRegular===1?'y':'ies'} to review` : 'Nothing to review'}</div></div></div>
+    ${groups.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>No foil + regular pairs</h3><p>You don't own a foil and a regular of the same card anywhere in your collection.</p></div>` : `
+    <div class="import-controls"><div class="import-controls-row"><span class="import-controls-label">Sort</span>${chip('alpha','A–Z')}${chip('binder','Binder order')}</div></div>
+    <div class="card" style="padding:12px;margin-bottom:12px;">Nothing here is removed automatically. The regular copies are marked in red so you can find and delete them (in Collectr, or with the Remove button here). The foil copies are never touched.</div>
+    ${groups.map(g => {
+      const sp = g.species ? speciesByName.get(g.species) : null;
+      const slot = g.species ? binderSlotBySpecies.get(g.species) : null;
+      return `
+      <div class="card pair-card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+          ${sp ? speciesImgTag(sp,'cardrow-img') : ''}
+          <div>
+            <div style="font-family:var(--font-display);font-weight:600;">${esc(g.name)}</div>
+            <div class="set">${esc(g.set)} · #${esc(g.cardNumber)}</div>
+          </div>
+          ${slot ? `<span class="chip sm" data-goto-binder="${slot.page}">${ICONS.binder} Pg ${slot.page}, pocket ${slot.pocket}</span>` : ''}
+        </div>
+        ${g.foils.map(c => line(c,'foil')).join('')}
+        ${g.regulars.map(c => line(c,'regular')).join('')}
+      </div>`;
+    }).join('')}`}
+  `;
 }
 
 /* ============================================================
