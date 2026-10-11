@@ -1820,6 +1820,14 @@ document.addEventListener('click', (e) => {
   }
   const cdRestore = e.target.closest('[data-action="collectr-restore"]');
   if(cdRestore){ restoreRemovedCards([cdRestore.dataset.card]); toast('Added back.'); render(); return; }
+  const heldBack = e.target.closest('[data-action="import-bring-back-held"]');
+  if(heldBack && importState && importState.preview){
+    const ids = importState.preview.items.filter(i => i.status === 'held').map(i => i.id);
+    const n = restoreRemovedCards(ids);
+    toast(`${fmtInt(n)} card${n===1?'':'s'} brought back into your collection.`);
+    buildAndShowPreview();
+    return;
+  }
   const cdRestoreAll = e.target.closest('[data-action="collectr-restore-all"]');
   if(cdRestoreAll){ const n = restoreRemovedCards(collectrDiscrepancies().inCollectrOnly.map(e2 => e2.id)); toast(`${n} card${n===1?'':'s'} added back.`); render(); return; }
   const dupSortBtn = e.target.closest('[data-action="dup-sort"]');
@@ -3569,6 +3577,10 @@ function renderImport(){
       ${counts.old ? `<div class="cell"><div class="n">${counts.old}</div><div class="l">Older cards added (not new)</div></div>` : ''}
       ${counts.held ? `<div class="cell"><div class="n">${counts.held}</div><div class="l">Held back — removed in the app</div></div>` : ''}
     </div>
+    ${counts.held ? `<div class="card" style="padding:12px;margin-bottom:12px;font-size:13px;border:1px solid var(--accent, #c44);">
+      <strong>${fmtInt(counts.held)} card${counts.held===1?'':'s'} in this file ${counts.held===1?'is':'are'} being skipped</strong> because ${counts.held===1?'it was':'they were'} deleted in the app earlier (for example with \u201cDelete this import\u2019s cards\u201d). Collectr still has ${counts.held===1?'it':'them'}, so the app holds ${counts.held===1?'it':'them'} back instead of re-adding.
+      <div style="margin-top:8px;"><button class="btn accent" data-action="import-bring-back-held">Bring back ${fmtInt(counts.held)} card${counts.held===1?'':'s'} and re-check</button></div>
+    </div>` : ''}
     <div class="card" style="padding:12px;margin-bottom:12px;font-size:13px;">
       <strong>${importState.preview.cutoff && importState.preview.cutoff.date ? 'New = Date Added on or after '+esc(fmtDay(importState.preview.cutoff.date)) : 'Everything not already in the app counts as new'}</strong> (${esc(importState.preview.cutoff ? importState.preview.cutoff.label : '')}).
       <button class="btn sm" id="changeCutoffBtn" style="margin-left:6px;">Change</button>
