@@ -1283,6 +1283,7 @@ function mapCollectrRow(headers, arr){
     quantity: parseInt(get('Quantity'),10)||1,
     marketPrice: parseFloat(marketPriceRaw)||0,
     dateAdded: get('Date Added') || todayISO(),
+    hasDateAdded: !!get('Date Added'),
     notes: get('Notes'),
   };
 }
@@ -1299,8 +1300,63 @@ function parseCollectrFile(filename, arrOfArrays){
 }
 
 /* Build an import preview from parsed rows, scoped to a chosen portfolio. */
-function buildImportPreview(rows, portfolioFilter){
+/* Read the file's "Date Added" text into a local date. Handles 2026-10-09,
+   2026-10-09 14:22:11, 10/9/2026, 10/9/26, 9/10/2026 (day first when the first
+   number can't be a month), "Oct 9, 2026", and spreadsheet date serials. */
+function parseDateAdded(v){
+  if(v == null) return null;
+  if(v instanceof Date) return isNaN(v) ? null : v;
+  const s = String(v).trim();
+  if(!s) return null;
+  let m;
+  if(/^\d{5}(\.\d+)?$/.test(s)){
+    const n = parseFloat(s);
+    if(n > 20000 && n < 80000){ const u = new Date(Math.round((n - 25569) * 86400000)); return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), u.getUTCHours(), u.getUTCMinutes()); }
+  }
+  if((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/))){
+    const d = new Date(+m[1], +m[2]-1, +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+    return isNaN(d) ? null : d;
+  }
+  if((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])?)?/))){
+    let a = +m[1], b = +m[2], y = +m[3];
+    if(y < 100) y += 2000;
+    let mo = a, d = b;
+    if(a > 12 && b <= 12){ mo = b; d = a; }
+    let H = +(m[4]||0); const ap = (m[7]||'').toLowerCase();
+    if(ap === 'pm' && H < 12) H += 12; if(ap === 'am' && H === 12) H = 0;
+    const dt = new Date(y, mo-1, d, H, +(m[5]||0), +(m[6]||0));
+    return isNaN(dt) || mo < 1 || mo > 12 ? null : dt;
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? null : new Date(t);
+}
+function startOfDay(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+const fmtDay = d => d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+
+/* What counts as "new" in an import: a card in the file whose Date Added is on
+   or after this day. choice: null/'auto' | 'today' | 'week' | 'none' | 'YYYY-MM-DD'. */
+function resolveImportCutoff(choice){
+  if(choice === 'none') return { date:null, label:'everything in the file counts as new' };
+  if(choice === 'today'){ const d = startOfDay(new Date()); return { date:d, label:'added today' }; }
+  if(choice === 'week'){ const d = startOfDay(new Date(Date.now() - 6*86400000)); return { date:d, label:'added in the last 7 days' }; }
+  if(/^\d{4}-\d{2}-\d{2}$/.test(choice||'')){ const d = parseDateAdded(choice); if(d) return { date:startOfDay(d), label:'a date you picked' }; }
+  const last = STATE.history.find(b => !b.cardsDeleted);
+  if(last){ const d = startOfDay(new Date(last.date)); return { date:d, label:'the day of your last import', auto:true }; }
+  let max = null;
+  STATE.collection.forEach(c => { const d = parseDateAdded(c.dateAdded); if(d && (!max || d > max)) max = d; });
+  if(max) return { date:startOfDay(max), label:'the newest card already in the app', auto:true };
+  return { date:null, label:'there is no earlier import to compare with, so everything counts as new', auto:true };
+}
+
+/* Each row's status comes from what's IN the file:
+     new        not in the app yet, and its Date Added is on/after the cutoff
+     old        not in the app yet, but added before the cutoff (it goes in, without being called new)
+     update     already in the app, but the quantity changed or the file's Date Added is later
+     duplicate  already in the app and nothing real changed (a price move alone is not an update)
+   A Pokémon you had none of counts all its cards as new, as long as one of them is. */
+function buildImportPreview(rows, portfolioFilter, cutoffInfo){
   const wantPortfolio = norm(portfolioFilter);
+  const cutoff = cutoffInfo === undefined ? resolveImportCutoff(null) : cutoffInfo;
   const portfoliosSeen = {};
   rows.forEach(r => { const p = r.portfolio || '(none)'; portfoliosSeen[p] = (portfoliosSeen[p]||0)+1; });
 
@@ -1309,27 +1365,34 @@ function buildImportPreview(rows, portfolioFilter){
     const species = resolveSpecies(row.productName);
     const id = compositeKey(row);
     const existing = STATE.collection.find(c => c.id === id);
-    let status;
+    const rowDate = row.hasDateAdded === false ? null : parseDateAdded(row.dateAdded);
+    const recent = !cutoff || !cutoff.date || !rowDate || rowDate.getTime() >= cutoff.date.getTime();
+    let status, refresh = false;
     if(STATE.removedInApp[id]) status = 'held'; // you removed this in the app; Collectr still has it
     else if(!species) status = 'review';
-    else if(!existing) status = 'new';
+    else if(!existing) status = recent ? 'new' : 'old';
     else {
-      const changed = existing.quantity !== row.quantity ||
-        Math.abs((existing.marketPrice||0) - row.marketPrice) > 0.001 ||
-        Math.abs((existing.costPaid||0) - row.costPaid) > 0.001;
-      status = changed ? 'update' : 'duplicate';
+      const storedDate = parseDateAdded(existing.dateAdded);
+      const qtyChanged = existing.quantity !== row.quantity;
+      const laterDate = !!(rowDate && storedDate && rowDate.getTime() > storedDate.getTime());
+      status = (qtyChanged || laterDate) ? 'update' : 'duplicate';
+      refresh = status === 'duplicate' && (Math.abs((existing.marketPrice||0) - row.marketPrice) > 0.001 || Math.abs((existing.costPaid||0) - row.costPaid) > 0.001);
     }
-    return { row, species, id, status, existing };
+    return { row, species, id, status, existing, refresh };
   });
 
-  return { items, portfoliosSeen, totalRows: rows.length, inScopeCount: inScope.length };
+  const owned = new Set(STATE.collection.filter(c => c.species).map(c => c.species));
+  const hasNew = new Set(items.filter(i => i.status === 'new' && i.species).map(i => i.species));
+  items.forEach(i => { if(i.status === 'old' && i.species && hasNew.has(i.species) && !owned.has(i.species)) i.status = 'new'; });
+
+  return { items, portfoliosSeen, totalRows: rows.length, inScopeCount: inScope.length, cutoff };
 }
 
 function commitImport(preview, filename, chosenPortfolio){
-  let added=0, updated=0, unchanged=0, reviewSkipped=0, learned=0, heldBack=0;
+  let added=0, updated=0, unchanged=0, reviewSkipped=0, learned=0, heldBack=0, older=0;
   const batchId = uid();
   const touchedSpecies = new Set();
-  const newIds = [], updatedIds = [];
+  const newIds = [], updatedIds = [], oldIds = [];
   const ownedBefore = new Set(STATE.collection.filter(c => c.species).map(c => c.species));
   const idSpecies = new Map();
   for(const item of preview.items){
@@ -1361,19 +1424,25 @@ function commitImport(preview, filename, chosenPortfolio){
       importBatch: batchId,
     };
     if(species){ touchedSpecies.add(species); idSpecies.set(rec.id, species); }
-    if(item.status === 'new' || (item.status==='review' && !item.existing)){
+    if(item.status === 'old'){
+      STATE.collection.push(rec);
+      older++; oldIds.push(rec.id);
+    } else if(item.status === 'new' || (item.status==='review' && !item.existing)){
       STATE.collection.push(rec);
       added++; newIds.push(rec.id);
     } else if(item.status === 'update' || (item.status==='review' && item.existing)){
       const i = STATE.collection.findIndex(c => c.id === item.id);
-      if(i>=0){ STATE.collection[i] = rec; updated++; updatedIds.push(rec.id); } else { STATE.collection.push(rec); added++; newIds.push(rec.id); }
+      if(i>=0){ if(STATE.collection[i].keepInApp) rec.keepInApp = true; STATE.collection[i] = rec; updated++; updatedIds.push(rec.id); } else { STATE.collection.push(rec); added++; newIds.push(rec.id); }
     } else {
+      // unchanged; if only the price moved, quietly keep the stored price current
+      if(item.refresh && item.existing){ item.existing.marketPrice = rec.marketPrice; item.existing.costPaid = rec.costPaid; }
       unchanged++;
     }
   }
   // A Pokémon you had no cards of before this import: every card of it in the
   // import counts as NEW, even if one of them matched an older unlinked record.
-  const newSpecies = [...touchedSpecies].filter(sp => !ownedBefore.has(sp));
+  const speciesWithNew = new Set(newIds.map(id => idSpecies.get(id)).filter(Boolean));
+  const newSpecies = [...touchedSpecies].filter(sp => !ownedBefore.has(sp) && (speciesWithNew.has(sp) || updatedIds.some(id => idSpecies.get(id) === sp)));
   if(newSpecies.length){
     const ns = new Set(newSpecies);
     const moved = updatedIds.filter(id => ns.has(idSpecies.get(id)));
@@ -1397,7 +1466,8 @@ function commitImport(preview, filename, chosenPortfolio){
     portfolio: chosenPortfolio,
     totalRows: preview.totalRows, inScope: preview.inScopeCount,
     added, updated, unchanged, reviewSkipped,
-    newIds, updatedIds, newSpecies, heldBack,
+    newIds, updatedIds, oldIds, newSpecies, heldBack, older,
+    cutoff: preview.cutoff && preview.cutoff.date ? preview.cutoff.date.toISOString() : null,
   };
   STATE.history.unshift(batch);
   persist('history');
@@ -1669,6 +1739,8 @@ document.addEventListener('click', (e) => {
     render();
     return;
   }
+  const cutoffBtn = e.target.closest('[data-action="import-cutoff"]');
+  if(cutoffBtn){ importState.cutoff = cutoffBtn.dataset.value === 'auto' ? null : cutoffBtn.dataset.value; render(); return; }
   const viewImportBtn = e.target.closest('[data-action="view-import"]');
   if(viewImportBtn){ importDetailFilter = 'all'; location.hash = '#/history/' + viewImportBtn.dataset.batch; return; }
   const viewImportListBtn = e.target.closest('[data-action="view-import-list"]');
@@ -1790,7 +1862,9 @@ function wireScreenEvents(routeId){
       ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
       dz.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if(f) handleImportFile(f); });
     }
-    $('#portfolioSelect')?.addEventListener('change', e => { importState.portfolio = e.target.value; });
+    $('#portfolioSelect')?.addEventListener('change', e => { importState.portfolio = e.target.value; render(); });
+    $('#cutoffDate')?.addEventListener('change', e => { importState.cutoff = e.target.value || null; render(); });
+    $('#changeCutoffBtn')?.addEventListener('click', () => { importState.preview = null; render(); });
     $('#buildPreviewBtn')?.addEventListener('click', buildAndShowPreview);
     $('#cancelImport')?.addEventListener('click', () => { resetImportState(); render(); });
     $('#commitImportBtn')?.addEventListener('click', doCommitImport);
@@ -3043,6 +3117,7 @@ function binderHighlights(){
     if(!c.species) return;
     const pickId = STATE.picks[c.species];
     if(pickId === c.id){
+      if(it.status === 'older') return;   // an older card that was just filled in: nothing to place
       out.set(c.species, it.status==='new' ? 'new' : it.status==='update' ? 'update' : 'imported');
     } else if(pickId && it.status==='new' && !(decided[c.species]||[]).includes(c.id)){
       if(!alts.has(c.species)) alts.set(c.species, []);
@@ -3370,9 +3445,30 @@ function renderExtraPocket(cell){
 /* ============================================================
    Import
    ============================================================ */
-let importState = { filename:null, rawRows:null, portfolios:{}, portfolio:'', preview:null, manual:{} };
+let importState = { filename:null, rawRows:null, portfolios:{}, portfolio:'', preview:null, manual:{}, cutoff:null };
 
-function resetImportState(){ importState = { filename:null, rawRows:null, portfolios:{}, portfolio:'', preview:null, manual:{} }; }
+function resetImportState(){ importState = { filename:null, rawRows:null, portfolios:{}, portfolio:'', preview:null, manual:{}, cutoff:null }; }
+
+function importCutoffPanelHTML(){
+  const info = resolveImportCutoff(importState.cutoff);
+  const rows = importState.rawRows.filter(r => norm(r.portfolio) === norm(importState.portfolio));
+  const dated = rows.filter(r => r.hasDateAdded !== false && parseDateAdded(r.dateAdded));
+  const recent = info.date ? dated.filter(r => parseDateAdded(r.dateAdded).getTime() >= info.date.getTime()).length : rows.length;
+  const days = dated.map(r => parseDateAdded(r.dateAdded)).sort((a,b) => a-b);
+  const chip = (val, label, active) => `<button type="button" class="chip ${active?'active':''}" data-action="import-cutoff" data-value="${val}">${label}</button>`;
+  const c = importState.cutoff;
+  const customVal = /^\d{4}-\d{2}-\d{2}$/.test(c||'') ? c : '';
+  return `
+    <div class="field" style="margin-top:14px;">
+      <label>What counts as a NEW card?</label>
+      <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px;">A card is new when its <strong>Date Added</strong> in your file is on or after this day. Cards added earlier still go in, but aren\u2019t called new. A price change alone is no longer an update.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        ${chip('auto','Since my last import', !c)}${chip('today','Added today', c==='today')}${chip('week','Last 7 days', c==='week')}${chip('none','Everything is new', c==='none')}
+        <input type="date" id="cutoffDate" value="${customVal}" title="Pick a date" style="margin-left:4px;">
+      </div>
+      <div style="font-size:12.5px;margin-top:8px;"><strong>${info.date ? 'New = added on or after '+esc(fmtDay(info.date)) : 'Everything will count as new'}</strong> (${esc(info.label)}). About <strong>${fmtInt(recent)}</strong> of ${fmtInt(rows.length)} cards in this file ${info.date ? 'qualify' : 'will count as new, if they\u2019re not already in the app'}.${days.length ? ` Dates in this file run from ${esc(fmtDay(days[0]))} to ${esc(fmtDay(days[days.length-1]))}.` : ' This file has no readable Date Added column, so every card not already in the app will count as new.'}</div>
+    </div>`;
+}
 
 function renderImport(){
   if(!importState.rawRows){
@@ -3404,13 +3500,14 @@ function renderImport(){
             ${portfolioNames.map(p=>`<option value="${esc(p)}" ${p===importState.portfolio?'selected':''}>${esc(p)} (${importState.portfolios[p]} rows)</option>`).join('')}
           </select>
         </div>
+        ${importCutoffPanelHTML()}
         <button class="btn primary" id="buildPreviewBtn">Build preview</button>
       </div>
     `;
   }
 
   const { items } = importState.preview;
-  const counts = { new:0, update:0, duplicate:0, review:0, held:0 };
+  const counts = { new:0, update:0, duplicate:0, review:0, held:0, old:0 };
   items.forEach(i => counts[i.status]++);
   const reviewItems = items.filter(i=>i.status==='review');
   const visibleItems = items.slice(0, 400); // cap render for very large imports
@@ -3425,7 +3522,12 @@ function renderImport(){
       <div class="cell"><div class="n">${counts.update}</div><div class="l">Quantity / price changes</div></div>
       <div class="cell"><div class="n">${counts.duplicate}</div><div class="l">Already in collection</div></div>
       <div class="cell"><div class="n">${counts.review}</div><div class="l">Needs review</div></div>
+      ${counts.old ? `<div class="cell"><div class="n">${counts.old}</div><div class="l">Older cards added (not new)</div></div>` : ''}
       ${counts.held ? `<div class="cell"><div class="n">${counts.held}</div><div class="l">Held back — removed in the app</div></div>` : ''}
+    </div>
+    <div class="card" style="padding:12px;margin-bottom:12px;font-size:13px;">
+      <strong>${importState.preview.cutoff && importState.preview.cutoff.date ? 'New = Date Added on or after '+esc(fmtDay(importState.preview.cutoff.date)) : 'Everything not already in the app counts as new'}</strong> (${esc(importState.preview.cutoff ? importState.preview.cutoff.label : '')}).
+      <button class="btn sm" id="changeCutoffBtn" style="margin-left:6px;">Change</button>
     </div>
 
     ${reviewItems.length ? `
@@ -3464,7 +3566,7 @@ function renderImport(){
   `;
 }
 function statusLabel(s){
-  return { new:'New', update:'Update', duplicate:'Unchanged', review:'Needs review', held:'Held back' }[s] || s;
+  return { new:'New', update:'Update', duplicate:'Unchanged', review:'Needs review', held:'Held back', old:'Added (older)' }[s] || s;
 }
 
 function handleImportFile(file){
@@ -3497,12 +3599,12 @@ function ingestParsedRows(filename, arrOfArrays){
   const portfolios = {};
   rows.forEach(r => { const p = r.portfolio || '(none)'; portfolios[p] = (portfolios[p]||0)+1; });
   let defaultPortfolio = Object.keys(portfolios).find(p => /kyle/i.test(p)) || Object.keys(portfolios)[0] || '';
-  importState = { filename, rawRows: rows, portfolios, portfolio: defaultPortfolio, preview:null, manual:{} };
+  importState = { filename, rawRows: rows, portfolios, portfolio: defaultPortfolio, preview:null, manual:{}, cutoff:null };
   render();
 }
 
 function buildAndShowPreview(){
-  importState.preview = buildImportPreview(importState.rawRows, importState.portfolio);
+  importState.preview = buildImportPreview(importState.rawRows, importState.portfolio, resolveImportCutoff(importState.cutoff));
   render();
 }
 
@@ -3528,7 +3630,7 @@ function doCommitImport(){
 function finishCommit(){
   const { batch, touchedSpecies } = commitImport(importState.preview, importState.filename, importState.portfolio);
   autoAssignSinglePicks(touchedSpecies);
-  toast(`Import complete — ${batch.added} new, ${batch.updated} updated.${batch.heldBack ? ' '+batch.heldBack+' held back (removed in the app, still in Collectr).' : ''}`);
+  toast(`Import complete — ${batch.added} new, ${batch.updated} updated.${batch.older ? ' '+batch.older+' older cards added (not counted as new).' : ''}${batch.heldBack ? ' '+batch.heldBack+' held back (removed in the app, still in Collectr).' : ''}`);
   resetImportState();
   const needsReconcile = speciesNeedingPickReconciliation(touchedSpecies);
   if(needsReconcile.length){
@@ -3603,7 +3705,7 @@ function renderHistory(args){
       <button class="btn ghost" data-action="clear-import-selection">Clear</button>
     </div>
     <div class="tablewrap"><table class="datatable">
-      <thead><tr><th></th><th>Date</th><th>File</th><th>Portfolio</th><th>Rows in scope</th><th>New</th><th>Updated</th><th>Unchanged</th><th>Skipped</th><th></th></tr></thead>
+      <thead><tr><th></th><th>Date</th><th>File</th><th>Portfolio</th><th>Rows in scope</th><th>New</th><th>Updated</th><th>Older</th><th>Unchanged</th><th>Skipped</th><th></th></tr></thead>
       <tbody>${STATE.history.map(b => `
         <tr>
           <td><input type="checkbox" data-action="toggle-import-select" data-batch="${esc(b.id)}" ${importSelection.has(b.id)?'checked':''} aria-label="Select this import"></td>
@@ -3613,6 +3715,7 @@ function renderHistory(args){
           <td>${b.inScope}</td>
           <td>${b.added}</td>
           <td>${b.updated}</td>
+          <td>${b.older||0}</td>
           <td>${b.unchanged}</td>
           <td>${b.reviewSkipped||0}</td>
           <td style="white-space:nowrap;">
@@ -3639,17 +3742,18 @@ function collectImportItems(batches){
     const bi = STATE.history.indexOf(batch);
     const tracked = Array.isArray(batch.newIds) || Array.isArray(batch.updatedIds);
     if(!tracked) anyUntracked = true;
+    const RANK = { unknown:0, older:1, update:2, new:3 };
     const add = (id, status) => {
       const c = byId.get(id); if(!c) return;
       const ex = merged.get(id);
       if(!ex){ merged.set(id, { card:c, status, batch, batchIndex:bi, order:merged.size }); return; }
-      if(status==='new' || ex.status==='new') ex.status = 'new';
-      else if(ex.status==='unknown') ex.status = status;
+      if(RANK[status] > RANK[ex.status]) ex.status = status;
       if(bi < ex.batchIndex){ ex.batch = batch; ex.batchIndex = bi; }
     };
     if(tracked){
       (batch.newIds||[]).forEach(id => add(id,'new'));
       (batch.updatedIds||[]).forEach(id => add(id,'update'));
+      (batch.oldIds||[]).forEach(id => add(id,'older'));
     } else {
       STATE.collection.filter(c => c.importBatch === batch.id).forEach(c => add(c.id,'unknown'));
     }
@@ -3712,12 +3816,12 @@ function renderImportRow(it, showSource, dupMap, pairSet, newSpeciesSet){
       <div class="info">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-family:var(--font-display);font-weight:600;">${esc(c.species || c.productName)}</span>
-          ${it.status==='new' ? '<span class="badge new">NEW</span>' : it.status==='update' ? '<span class="badge update">UPDATED</span>' : ''}
+          ${it.status==='new' ? '<span class="badge new">NEW</span>' : it.status==='update' ? '<span class="badge update">UPDATED</span>' : it.status==='older' ? '<span class="badge dup" title="Added by this import, but its Date Added is before the cutoff, so it isn\'t counted as new">ADDED (OLDER)</span>' : ''}
           ${c.species && newSpeciesSet && newSpeciesSet.has(c.species) ? '<span class="badge pick" title="You had no cards of this Pokémon before this import">New Pokémon</span>' : ''}
           ${dupBadgeHTML(c, dupMap, pairSet)}
         </div>
         <div class="set">${esc(c.set)} · #${esc(c.cardNumber)} · ${esc(c.rarity)}${c.variance?(' · '+esc(c.variance)):''}</div>
-        <div class="meta">${esc(c.condition)} · Qty ${c.quantity}${taxLabel ? ' · '+esc(taxLabel) : ''}${showSource ? ' · from '+esc(it.batch.filename||'import') : ''}</div>
+        <div class="meta">${esc(c.condition)} · Qty ${c.quantity} · Date Added ${esc(c.dateAdded)}${taxLabel ? ' · '+esc(taxLabel) : ''}${showSource ? ' · from '+esc(it.batch.filename||'import') : ''}</div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${cardDestinationHTML(c)}</div>
       </div>
     </div>`;
@@ -3736,12 +3840,14 @@ function renderImportDetail(ids){
   const nNew = items.filter(i => i.status==='new').length;
   const nUpd = items.filter(i => i.status==='update').length;
   const nUnk = items.filter(i => i.status==='unknown').length;
+  const nOld = items.filter(i => i.status==='older').length;
   const nPair = items.filter(i => pairSet.has(i.card.id)).length;
   const nNewPoke = [...new Set(items.filter(i => i.card.species && newSpeciesSet.has(i.card.species)).map(i => i.card.species))].length;
   let shown = items;
   if(importDetailFilter==='new') shown = items.filter(i => i.status==='new');
   if(importDetailFilter==='update') shown = items.filter(i => i.status==='update');
   if(importDetailFilter==='unknown') shown = items.filter(i => i.status==='unknown');
+  if(importDetailFilter==='older') shown = items.filter(i => i.status==='older');
   if(importDetailFilter==='pair') shown = items.filter(i => pairSet.has(i.card.id));
   shown = sortImportItems(shown, importDetailSort);
   const allDeleted = batches.every(b => b.cardsDeleted);
@@ -3773,7 +3879,7 @@ function renderImportDetail(ids){
     <div class="pagehead">
       <div>
         <h1>${multi ? fmtInt(batches.length)+' imports together' : esc(batches[0].filename||'Import')}</h1>
-        <div class="sub">${multi ? '' : esc(new Date(batches[0].date).toLocaleString())+' · '}${fmtInt(nNew)} new · ${fmtInt(nUpd)} updated${nUnk ? ` · ${fmtInt(nUnk)} from older imports (no label)` : ''}${nNewPoke ? ` · ${fmtInt(nNewPoke)} new Pokémon` : ''}${allDeleted ? ' · cards deleted' : ''}</div>
+        <div class="sub">${multi ? '' : esc(new Date(batches[0].date).toLocaleString())+' · '}${fmtInt(nNew)} new · ${fmtInt(nUpd)} updated${nOld ? ` · ${fmtInt(nOld)} older (not new)` : ''}${nUnk ? ` · ${fmtInt(nUnk)} from older imports (no label)` : ''}${nNewPoke ? ` · ${fmtInt(nNewPoke)} new Pokémon` : ''}${allDeleted ? ' · cards deleted' : ''}</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" data-action="view-import-list">All imports</button>
@@ -3785,7 +3891,7 @@ function renderImportDetail(ids){
         ${chip('import-sort','recent',importDetailSort,'Most recent import')}${chip('import-sort','alpha',importDetailSort,'A–Z')}${chip('import-sort','binder',importDetailSort,'Binder order')}
       </div>
       <div class="import-controls-row"><span class="import-controls-label">Show</span>
-        ${chip('import-filter','all',importDetailFilter,'All ('+fmtInt(items.length)+')')}${chip('import-filter','new',importDetailFilter,'New ('+fmtInt(nNew)+')')}${chip('import-filter','update',importDetailFilter,'Updated ('+fmtInt(nUpd)+')')}${nUnk ? chip('import-filter','unknown',importDetailFilter,'Older imports, no label ('+fmtInt(nUnk)+')') : ''}${chip('import-filter','pair',importDetailFilter,'Foil + regular ('+fmtInt(nPair)+')')}
+        ${chip('import-filter','all',importDetailFilter,'All ('+fmtInt(items.length)+')')}${chip('import-filter','new',importDetailFilter,'New ('+fmtInt(nNew)+')')}${chip('import-filter','update',importDetailFilter,'Updated ('+fmtInt(nUpd)+')')}${nOld ? chip('import-filter','older',importDetailFilter,'Older cards ('+fmtInt(nOld)+')') : ''}${nUnk ? chip('import-filter','unknown',importDetailFilter,'Older imports, no label ('+fmtInt(nUnk)+')') : ''}${chip('import-filter','pair',importDetailFilter,'Foil + regular ('+fmtInt(nPair)+')')}
       </div>
       <div class="import-controls-row"><span class="import-controls-label">Imports</span>
         <div class="import-chip-scroll">${STATE.history.map(b => `<button class="chip ${idList.split(',').includes(b.id)?'active':''}" data-action="toggle-detail-import" data-batch="${esc(b.id)}" title="${esc(new Date(b.date).toLocaleString())}">${esc(b.filename||'Import')} · ${esc(new Date(b.date).toLocaleDateString())}</button>`).join('')}</div>
@@ -3803,7 +3909,7 @@ function deleteImportCards(arg){
   const batches = ids.map(id => STATE.history.find(b => b.id === id)).filter(b => b && !b.cardsDeleted);
   if(!batches.length) return;
   const { items, anyUntracked } = collectImportItems(batches);
-  const toRemove = items.filter(i => i.status==='new' || i.status==='unknown');
+  const toRemove = items.filter(i => i.status==='new' || i.status==='older' || i.status==='unknown');
   const kept = items.filter(i => i.status==='update').length;
   if(!toRemove.length){ toast('Nothing left to delete from that.'); return; }
   const n = toRemove.length, many = batches.length > 1;
@@ -4148,6 +4254,7 @@ function renderSettings(){
         ? 'Your data is saved in this browser\u2019s database (IndexedDB), which has far more room than the small storage older versions used.'
         : 'Your data is saved in this browser\u2019s small storage (about 5 MB, shared with every app on the same web address). If saving ever fails, download a backup below.'}
         This app\u2019s data is about <strong>${fmtInt(Math.round(storageUsageChars()/1024))} KB</strong>.</p>
+      <p style="font-size:13px;margin:8px 0;"><strong>Saved here right now:</strong> ${fmtInt(STATE.collection.length)} cards · ${fmtInt(STATE.history.length)} imports · ${fmtInt(Object.keys(STATE.categoryOverrides).length)} Pokémon you recategorized · ${fmtInt(Object.keys(STATE.labelOverrides).length + Object.keys(STATE.mergedLabels).length)} edited binder labels · ${fmtInt(Object.keys(STATE.familyOverrides).length)} evolution-family edits · ${fmtInt(STATE.customSpecies.length)} Pokémon you added by hand.</p>
       <button class="btn" id="checkStorageBtn">Check storage space</button>
     </div>
     <div class="panel" style="margin-bottom:16px;">
