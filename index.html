@@ -623,6 +623,9 @@ const ICONS = {
 /* ---------------- static data lookups (built once) ---------------- */
 const speciesByName = new Map(SPECIES.map(s => [s.name, s]));
 const speciesById = new Map(SPECIES.map(s => [s.id, s]));
+const ORIGINAL_NAMES = new Map(SPECIES.map(s => [s.id, s.name]));   // built-in names, before any rename of yours
+const RENAMED_FROM = {};          // built-in name -> the name you gave it (so old names keep resolving)
+let _nameIndexesReady = false;    // true once speciesNameByLower exists
 const aliasLower = {};
 Object.keys(ALIASES).forEach(k => aliasLower[k] = ALIASES[k]);
 
@@ -831,14 +834,100 @@ if(savedTaxIsCurrent){
 }
 // Add back any Pokémon you've hand-added that aren't in the built-in dex.
 // Must happen before the overrides below, since those look species up by name.
+// (Your Pokémon renames are applied just after this, below.)
 STATE.customSpecies.forEach(sp => {
   if(sp && sp.name && !speciesByName.has(sp.name)){
     SPECIES.push(sp);
     speciesByName.set(sp.name, sp);
   }
 });
+/* ---- Renaming Pokémon ----
+   Your rename is saved by the built-in species id (STATE.settings.speciesRenames: id -> name) and re-applied
+   on every start. Everything you own that is filed under the old name (cards, binder picks, categories...)
+   is moved to the new name when you rename, so nothing gets orphaned. */
+function setSpeciesName(sp, to){
+  const from = sp.name; if(from === to) return;
+  if(speciesByName.get(from) === sp) speciesByName.delete(from);
+  sp.name = to; speciesByName.set(to, sp);
+  SPECIES.forEach(x => { if(x.baseSpecies === from) x.baseSpecies = to; });
+  const orig = ORIGINAL_NAMES.get(sp.id);
+  if(orig !== undefined){ if(to === orig) delete RENAMED_FROM[orig]; else RENAMED_FROM[orig] = to; }
+  if(_nameIndexesReady){ speciesNameByLower.clear(); SPECIES.forEach(x => speciesNameByLower.set(x.name.toLowerCase(), x.name)); }
+}
+function applySpeciesRenames(){
+  SPECIES.forEach(sp => { const o = ORIGINAL_NAMES.get(sp.id); if(o !== undefined && sp.name !== o) setSpeciesName(sp, o); });
+  const map = (STATE.settings && STATE.settings.speciesRenames) || {};
+  Object.keys(map).forEach(id => {
+    const sp = speciesById.get(id), to = map[id];
+    if(sp && to && !speciesByName.has(to)) setSpeciesName(sp, to);
+  });
+}
+function migrateSpeciesKey(from, to){
+  STATE.collection.forEach(c => { if(c.species === from) c.species = to; });
+  const mv = obj => { if(obj && Object.prototype.hasOwnProperty.call(obj, from)){ obj[to] = obj[from]; delete obj[from]; } };
+  mv(STATE.picks); mv(STATE.manualOwned); mv(STATE.categoryOverrides); mv(STATE.familyOverrides);
+  const hl = STATE.settings && STATE.settings.binderHl; if(hl && hl.decided) mv(hl.decided);
+  Object.keys(STATE.overrides||{}).forEach(k => { if(STATE.overrides[k] === from) STATE.overrides[k] = to; });
+  Object.keys(STATE.removedInApp||{}).forEach(id => { const r = STATE.removedInApp[id]; if(r && r.card && r.card.species === from) r.card.species = to; });
+  STATE.history.forEach(b => { if(Array.isArray(b.newSpecies)) b.newSpecies = b.newSpecies.map(n => n === from ? to : n); });
+}
+function renameSpecies(oldName, rawNew){
+  const sp = speciesByName.get(oldName); if(!sp) return null;
+  const to = String(rawNew||'').trim().replace(/\s+/g,' ');
+  if(!to){ toast('Give it a name.'); return null; }
+  if(to === oldName) return to;
+  const clash = speciesNameByLower.get(to.toLowerCase());
+  if(clash && clash !== oldName){ toast('Another Pokémon is already called "' + clash + '".'); return null; }
+  const origOwner = Object.keys(RENAMED_FROM).find(o => o.toLowerCase() === to.toLowerCase());
+  if(origOwner && ORIGINAL_NAMES.get(sp.id) !== origOwner){ toast('"' + origOwner + '" is the original name of another Pokémon you renamed.'); return null; }
+  migrateSpeciesKey(oldName, to);
+  setSpeciesName(sp, to);
+  if(ORIGINAL_NAMES.has(sp.id)){
+    if(!STATE.settings.speciesRenames) STATE.settings.speciesRenames = {};
+    if(to === ORIGINAL_NAMES.get(sp.id)) delete STATE.settings.speciesRenames[sp.id]; else STATE.settings.speciesRenames[sp.id] = to;
+  }
+  rebuildBinder();
+  ['collection','picks','manualOwned','categoryOverrides','familyOverrides','overrides','removedInApp','history','customSpecies','settings'].forEach(part => persist(part));
+  return to;
+}
+/* cards whose own name now matches this Pokémon but that are filed under another one */
+function cardsToRefile(speciesName){
+  return STATE.collection.filter(c => c.species !== speciesName && c.productName && resolveSpecies(c.productName) === speciesName);
+}
+function openRenameSpeciesModal(name){
+  const sp = speciesByName.get(name); if(!sp) return;
+  const orig = ORIGINAL_NAMES.get(sp.id), renamed = orig !== undefined && orig !== name;
+  openModal('Rename Pokémon', `
+    <div class="field"><label>Name</label><input type="text" id="renSpName" maxlength="60" value="${esc(name)}"></div>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:6px;">This changes the name everywhere: binder, extras, Pokédex, and your saved picks and cards. ${renamed ? `Original name: <strong>${esc(orig)}</strong>.` : ''}</p>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button>
+     ${renamed ? `<button class="btn ghost" id="renSpReset">Reset to original</button>` : ''}
+     <button class="btn accent" id="renSpSave">Save</button>`);
+  const input = $('#renSpName'); input.focus(); input.select();
+  function finish(to){
+    const done = renameSpecies(name, to); if(!done) return;
+    closeModal();
+    const stray = cardsToRefile(done);
+    const go = () => { location.hash = '#/pokedex/' + encodeURIComponent(done); render(); };
+    if(done !== name) toast('Renamed to ' + done + '.');
+    go();
+    if(stray.length){
+      confirmAction(stray.length + ' card' + (stray.length===1?' is':'s are') + ' named "' + stray[0].productName + '" but filed under ' + [...new Set(stray.map(c=>c.species||'no Pokémon'))].join(' / ') + '. Move ' + (stray.length===1?'it':'them') + ' to ' + done + '?', () => {
+        stray.forEach(c => { if(c.species && STATE.picks[c.species] === c.id) delete STATE.picks[c.species]; c.species = done; });
+        persist('collection'); persist('picks');
+        toast(stray.length + ' card' + (stray.length===1?'':'s') + ' moved to ' + done + '.');
+        render();
+      });
+    }
+  }
+  $('#renSpSave').addEventListener('click', () => finish(input.value));
+  input.addEventListener('keydown', e => { if(e.key === 'Enter') finish(input.value); });
+  $('#renSpReset')?.addEventListener('click', () => finish(orig));
+}
+
 // Apply any saved recategorizations onto SPECIES before anything else reads it,
 // then recompute the binder layout so it reflects them from the first render.
+applySpeciesRenames();
 Object.keys(STATE.categoryOverrides).forEach(nm => {
   const sp = SPECIES.find(s => s.name === nm);
   const ov = STATE.categoryOverrides[nm];
@@ -1257,7 +1346,17 @@ function stripRegionalPrefix(name){
    capitalization difference from Collectr falls through to prefix-stripping
    and silently matches the base species instead of the actual variant. */
 const speciesNameByLower = new Map(SPECIES.map(s => [s.name.toLowerCase(), s.name]));
+_nameIndexesReady = true;
 function resolveSpecies(rawName){
+  // A name you've learned by hand always wins; otherwise a Pokémon's old built-in name still lands on it.
+  if(!STATE.overrides[norm(rawName)]){
+    const t = String(rawName||'').trim().toLowerCase();
+    for(const o in RENAMED_FROM){ if(o.toLowerCase() === t) return RENAMED_FROM[o]; }
+  }
+  const r = resolveSpeciesCore(rawName);
+  return r ? (RENAMED_FROM[r] || r) : null;   // alias tables still point at built-in names
+}
+function resolveSpeciesCore(rawName){
   const key = norm(rawName);
   if(STATE.overrides[key]) return STATE.overrides[key];
   if(speciesByName.has(rawName.trim())) return rawName.trim();
@@ -1749,6 +1848,8 @@ document.addEventListener('click', (e) => {
     render();
     return;
   }
+  const renSpBtn = e.target.closest('[data-action="rename-species"]');
+  if(renSpBtn){ openRenameSpeciesModal(renSpBtn.dataset.species); return; }
   const recatBtn = e.target.closest('[data-action="recategorize"]');
   if(recatBtn){ openRecategorizeModal([recatBtn.dataset.species]); return; }
   const undoBtn = e.target.closest('[data-action="undo-labels"]');
@@ -2532,6 +2633,7 @@ function renderSpeciesDetail(args){
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+        <button class="btn ghost sm" data-action="rename-species" data-species="${esc(s.name)}">${ICONS.edit} Rename</button>
         ${slot ? `<button class="btn" data-nav-binder="${slot.page}">${ICONS.binder} View in binder — page ${slot.page}</button>` : ''}
         ${cards.length===0 ? `<button class="btn ${STATE.manualOwned[name]?'accent':'ghost'} sm" data-action="toggle-manual-owned" data-species="${esc(name)}">${STATE.manualOwned[name]?ICONS.check+' Marked as owned':ICONS.plus+' Mark as owned'}</button>` : ''}
       </div>
@@ -4549,6 +4651,7 @@ function restoreBackup(file){
             speciesByName.set(sp.name, sp);
           }
         });
+        applySpeciesRenames();
         Object.keys(STATE.categoryOverrides).forEach(nm => {
           const sp = SPECIES.find(s => s.name === nm);
           const ov = STATE.categoryOverrides[nm];
