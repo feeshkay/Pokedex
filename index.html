@@ -561,7 +561,7 @@ function computeBinderLayout(species){
 let BINDER = computeBinderLayout(SPECIES);
 
 </script>
-<script>
+<script type="text/plain" id="kd-app">
 /* ============================================================
    Kyle's Collection — app.js
    Vanilla JS, no build step. Data (SPECIES/ALIASES/TAXONOMY/BINDER)
@@ -668,13 +668,63 @@ const LS_KEYS = {
   removedInApp: 'pkmn.removedInApp',
 };
 
+/* ---------------- storage ----------------
+   Everything is saved in the browser's IndexedDB (set up by the loader at the
+   bottom of this file, which also moves any data an older version left in
+   localStorage over automatically). IndexedDB has far more room than
+   localStorage, whose ~5 MB is shared by every app on the same web address.
+   If IndexedDB isn't available the app falls back to localStorage as before. */
 function loadJSON(key, fallback){
-  try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+  try{
+    const raw = window.__KV_MODE === 'idb' ? (window.__KV[key] == null ? null : window.__KV[key]) : localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  }
   catch(e){ console.error('load failed', key, e); return fallback; }
 }
+const KV_DIRTY = new Set();
+let kvTimer = null, kvWarned = false;
+function kvQueue(key){ KV_DIRTY.add(key); clearTimeout(kvTimer); kvTimer = setTimeout(kvFlush, 40); }
+function kvFail(e){
+  console.error('save failed', e);
+  if(!kvWarned){ kvWarned = true; toast('Could not save — this browser has no room left for the app. Download a backup from Settings so nothing is lost.'); }
+}
+function kvFlush(){
+  clearTimeout(kvTimer);
+  if(!KV_DIRTY.size || !window.__IDB) return;
+  const entries = {};
+  KV_DIRTY.forEach(k => { entries[k] = window.__KV[k]; });
+  KV_DIRTY.clear();
+  try{
+    const tx = window.__IDB.transaction('kv', 'readwrite');
+    const st = tx.objectStore('kv');
+    Object.keys(entries).forEach(k => st.put(entries[k], k));
+    tx.onerror = tx.onabort = () => kvFail(tx.error);
+  }catch(e){ kvFail(e); }
+}
+window.addEventListener('pagehide', kvFlush);
+window.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') kvFlush(); });
 function saveJSON(key, val){
-  try{ localStorage.setItem(key, JSON.stringify(val)); return true; }
-  catch(e){ console.error('save failed', key, e); toast('Could not save — storage may be full.'); return false; }
+  let json;
+  try{ json = JSON.stringify(val); }catch(e){ console.error('save failed', key, e); return false; }
+  if(window.__KV_MODE === 'idb'){ window.__KV[key] = json; kvQueue(key); return true; }
+  try{
+    localStorage.setItem(key, json);
+    try{ localStorage.setItem('pkmn.__lsdirty', '1'); }catch(e){}   // so a later IndexedDB start knows this copy is newer
+    return true;
+  }
+  catch(e){ console.error('save failed', key, e); toast('Could not save — this browser\u2019s storage is full. Download a backup from Settings so nothing is lost.'); return false; }
+}
+function storageUsageChars(){
+  let n = 0;
+  if(window.__KV_MODE === 'idb'){ Object.keys(window.__KV).forEach(k => { n += (window.__KV[k]||'').length; }); }
+  else { try{ for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf('pkmn.')===0) n += (localStorage.getItem(k)||'').length; } }catch(e){} }
+  return n;
+}
+async function checkStorage(){
+  const mb = b => (b/1048576).toFixed(1)+' MB';
+  let line = 'This browser can\u2019t report overall storage use.';
+  try{ const e = await navigator.storage.estimate(); line = `This web address is using ${mb(e.usage)} of about ${mb(e.quota)} in total (every app on the same address counts).`; }catch(err){}
+  openModal('Storage', `<p style="font-size:14px;">${esc(line)}</p><p style="font-size:13px;color:var(--ink-soft);">This app\u2019s own data is about ${fmtInt(Math.round(storageUsageChars()/1024))} KB.</p>`, `<button class="btn primary" data-action="close-modal">Close</button>`);
 }
 
 let STATE = {
@@ -1748,6 +1798,7 @@ function wireScreenEvents(routeId){
   }
   else if(routeId === 'settings'){
     $('#exportBackupBtn')?.addEventListener('click', exportBackup);
+    $('#checkStorageBtn')?.addEventListener('click', checkStorage);
     $('#exportCsvBtn')?.addEventListener('click', exportCollectionCSV);
     $('#exportTaxCsvBtn')?.addEventListener('click', exportCategorizationCSV);
     const restoreInput = $('#restoreInput');
@@ -4092,6 +4143,14 @@ function renderSettings(){
   return `
     <div class="pagehead"><div><h1>Settings</h1></div></div>
     <div class="panel" style="margin-bottom:16px;">
+      <div class="section-title" style="margin-top:0;">Storage</div>
+      <p style="color:var(--ink-soft);font-size:13px;">${window.__KV_MODE === 'idb'
+        ? 'Your data is saved in this browser\u2019s database (IndexedDB), which has far more room than the small storage older versions used.'
+        : 'Your data is saved in this browser\u2019s small storage (about 5 MB, shared with every app on the same web address). If saving ever fails, download a backup below.'}
+        This app\u2019s data is about <strong>${fmtInt(Math.round(storageUsageChars()/1024))} KB</strong>.</p>
+      <button class="btn" id="checkStorageBtn">Check storage space</button>
+    </div>
+    <div class="panel" style="margin-bottom:16px;">
       <div class="section-title" style="margin-top:0;">Backup &amp; export</div>
       <p style="color:var(--ink-soft);font-size:13px;">Your collection, binder picks, and import history all live in this browser${cs.enabled ? ', and are synced to your cloud sync code' : ''}. Back them up regularly, especially before clearing browser data.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
@@ -4233,6 +4292,78 @@ function restoreBackup(file){
 // so reloading the app while sitting on any page (the Binder, Pokédex, Import...) can't hit an
 // uninitialised variable and stop the app from starting.
 render();
+</script>
+<script>
+/* Loader: opens the browser database, moves any data an older version kept in
+   localStorage over to it (checking it copied correctly before removing the old
+   copy, which also frees space other apps on this web address were sharing), then
+   starts the app. If the database isn't available, the app starts in localStorage mode. */
+(function(){
+  var DB_NAME = 'kylesdeck', STORE = 'kv';
+  function openDB(){
+    return new Promise(function(res, rej){
+      if(!window.indexedDB) return rej(new Error('IndexedDB not available'));
+      var r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = function(){ r.result.createObjectStore(STORE); };
+      r.onsuccess = function(){ res(r.result); };
+      r.onerror = function(){ rej(r.error || new Error('open failed')); };
+      r.onblocked = function(){ rej(new Error('open blocked')); };
+    });
+  }
+  function readAll(db){
+    return new Promise(function(res, rej){
+      var out = {}, tx = db.transaction(STORE, 'readonly'), req = tx.objectStore(STORE).openCursor();
+      req.onsuccess = function(){ var c = req.result; if(c){ out[c.key] = c.value; c.continue(); } else res(out); };
+      req.onerror = function(){ rej(req.error || new Error('read failed')); };
+    });
+  }
+  function writeMany(db, entries){
+    return new Promise(function(res, rej){
+      var tx = db.transaction(STORE, 'readwrite'), st = tx.objectStore(STORE);
+      Object.keys(entries).forEach(function(k){ st.put(entries[k], k); });
+      tx.oncomplete = function(){ res(); };
+      tx.onerror = tx.onabort = function(){ rej(tx.error || new Error('write failed')); };
+    });
+  }
+  function lsKeys(){
+    var ks = [];
+    try{ for(var i = 0; i < localStorage.length; i++){ var k = localStorage.key(i); if(k && k.indexOf('pkmn.') === 0) ks.push(k); } }catch(e){}
+    return ks;
+  }
+  function setMode(mode, kv, db){ window.__KV_MODE = mode; window.__KV = kv || {}; window.__IDB = db || null; }
+  function startApp(){
+    var el = document.createElement('script');
+    el.textContent = document.getElementById('kd-app').textContent;
+    document.body.appendChild(el);
+  }
+  (async function(){
+    try{
+      var db = await openDB();
+      var kv = await readAll(db);
+      var dirty = false;
+      try{ dirty = localStorage.getItem('pkmn.__lsdirty') === '1'; }catch(e){}
+      var mig = {};
+      lsKeys().forEach(function(k){
+        if(k === 'pkmn.__lsdirty') return;
+        if(dirty || !(k in kv)){ var v = localStorage.getItem(k); if(v != null) mig[k] = v; }
+      });
+      if(Object.keys(mig).length){
+        await writeMany(db, mig);
+        var back = await readAll(db);
+        Object.keys(mig).forEach(function(k){ if(back[k] !== mig[k]) throw new Error('copy could not be verified'); });
+        kv = back;
+      }
+      // everything that was in localStorage is now safely in the database: free that space
+      try{ lsKeys().forEach(function(k){ if(k === 'pkmn.__lsdirty' || (k in kv)) localStorage.removeItem(k); }); }catch(e){}
+      setMode('idb', kv, db);
+      try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+    }catch(e){
+      console.warn('IndexedDB unavailable, using localStorage instead', e);
+      setMode('local', null, null);
+    }
+    startApp();
+  })();
+})();
 </script>
 </body>
 </html>
