@@ -496,9 +496,15 @@ function sortByFamilyThenEvo(list){
   const families = [...byFam.values()].map(members => {
     const ordered = members.slice().sort((a,b) => (a.evoOrder||0)-(b.evoOrder||0));
     const base = ordered.find(m=>!m.variant) || ordered[0];
-    return { members: ordered, base, type: (base.types && base.types[0]) || '' };
+    // Final evolution = the highest stage among the regular (non-variant) members, so Mega / regional / costume
+    // forms don't count. A line that branches (Eevee, Tyrogue...) uses its alphabetically first final.
+    const core = ordered.filter(m=>!m.variant), pool = core.length ? core : ordered;
+    const top = Math.max(...pool.map(m => m.evoOrder||0));
+    const finalName = pool.filter(m => (m.evoOrder||0) === top).map(m => m.name).sort((a,b) => a.localeCompare(b))[0];
+    return { members: ordered, base, finalName, type: (base.types && base.types[0]) || '' };
   });
-  families.sort((a,b) => (typeSortIndex(a.type)-typeSortIndex(b.type)) || a.base.name.localeCompare(b.base.name));
+  // Grouped by the first stage's main type (TYPE_SORT_ORDER), then A-Z by the name of the family's final evolution.
+  families.sort((a,b) => (typeSortIndex(a.type)-typeSortIndex(b.type)) || a.finalName.localeCompare(b.finalName) || a.base.name.localeCompare(b.base.name));
   const result = [];
   families.forEach(f => result.push(...f.members));
   return result;
