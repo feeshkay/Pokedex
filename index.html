@@ -682,26 +682,45 @@ function loadJSON(key, fallback){
   catch(e){ console.error('load failed', key, e); return fallback; }
 }
 const KV_DIRTY = new Set();
-let kvTimer = null, kvWarned = false;
-function kvQueue(key){ KV_DIRTY.add(key); clearTimeout(kvTimer); kvTimer = setTimeout(kvFlush, 40); }
+let kvScheduled = false, kvWarned = false, kvPending = 0, kvLastSaved = 0, kvLastError = '';
+function kvQueue(key){
+  KV_DIRTY.add(key);
+  // Write at the end of the current tick (no waiting), so a refresh right after a change can't beat the save.
+  if(!kvScheduled){ kvScheduled = true; (window.queueMicrotask || (f => Promise.resolve().then(f)))(kvFlush); }
+}
 function kvFail(e){
+  kvLastError = (e && e.message) ? e.message : String(e || 'unknown error');
   console.error('save failed', e);
   if(!kvWarned){ kvWarned = true; toast('Could not save — this browser has no room left for the app. Download a backup from Settings so nothing is lost.'); }
 }
 function kvFlush(){
-  clearTimeout(kvTimer);
+  kvScheduled = false;
   if(!KV_DIRTY.size || !window.__IDB) return;
-  const entries = {};
-  KV_DIRTY.forEach(k => { entries[k] = window.__KV[k]; });
+  const keys = Array.from(KV_DIRTY), entries = {};
+  keys.forEach(k => { entries[k] = window.__KV[k]; });
   KV_DIRTY.clear();
+  let finished = false;
+  const done = ok => {
+    if(finished) return; finished = true; kvPending--;
+    if(ok) kvLastSaved = Date.now();
+    else keys.forEach(k => KV_DIRTY.add(k));   // keep them queued so the next save retries them
+  };
+  kvPending++;
   try{
     const tx = window.__IDB.transaction('kv', 'readwrite');
     const st = tx.objectStore('kv');
-    Object.keys(entries).forEach(k => st.put(entries[k], k));
-    tx.onerror = tx.onabort = () => kvFail(tx.error);
-  }catch(e){ kvFail(e); }
+    keys.forEach(k => st.put(entries[k], k));
+    tx.oncomplete = () => done(true);
+    tx.onerror = () => { done(false); kvFail(tx.error); };
+    tx.onabort = () => { done(false); kvFail(tx.error); };
+  }catch(e){ done(false); kvFail(e); }
 }
 window.addEventListener('pagehide', kvFlush);
+window.addEventListener('beforeunload', e => {
+  kvFlush();
+  // Only if a save is still in flight: ask the browser to wait instead of silently losing it.
+  if(kvPending > 0 || KV_DIRTY.size){ e.preventDefault(); e.returnValue = ''; }
+});
 window.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') kvFlush(); });
 function saveJSON(key, val){
   let json;
@@ -720,11 +739,36 @@ function storageUsageChars(){
   else { try{ for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf('pkmn.')===0) n += (localStorage.getItem(k)||'').length; } }catch(e){} }
   return n;
 }
+function kvReadBack(key){
+  return new Promise(res => {
+    try{
+      const r = window.__IDB.transaction('kv','readonly').objectStore('kv').get(key);
+      r.onsuccess = () => res(r.result); r.onerror = () => res(undefined);
+    }catch(e){ res(undefined); }
+  });
+}
 async function checkStorage(){
   const mb = b => (b/1048576).toFixed(1)+' MB';
   let line = 'This browser can\u2019t report overall storage use.';
   try{ const e = await navigator.storage.estimate(); line = `This web address is using ${mb(e.usage)} of about ${mb(e.quota)} in total (every app on the same address counts).`; }catch(err){}
-  openModal('Storage', `<p style="font-size:14px;">${esc(line)}</p><p style="font-size:13px;color:var(--ink-soft);">This app\u2019s own data is about ${fmtInt(Math.round(storageUsageChars()/1024))} KB.</p>`, `<button class="btn primary" data-action="close-modal">Close</button>`);
+  let mode, verdict = '';
+  if(window.__KV_MODE === 'idb'){
+    kvFlush();
+    await new Promise(r => setTimeout(r, 250));
+    const key = LS_KEYS.collection;
+    const stored = await kvReadBack(key);
+    const ok = stored === window.__KV[key] || (stored == null && window.__KV[key] == null);
+    mode = 'Saving to this browser\u2019s database (IndexedDB).';
+    verdict = ok ? 'Check passed: what is on disk matches what is on screen.' : 'WARNING: what is on disk does NOT match what is on screen. Download a backup now.';
+  } else {
+    mode = 'Saving to the browser\u2019s small storage (localStorage) because the database wasn\u2019t available.';
+  }
+  const last = kvLastSaved ? 'Last confirmed save: ' + new Date(kvLastSaved).toLocaleTimeString() + '.' : 'No save has been confirmed yet in this visit (normal if you haven\u2019t changed anything).';
+  const origin = location.protocol === 'file:'
+    ? '<p style="font-size:13px;color:var(--ink-soft);">This page is open as a local file. Many browsers (especially on phones) keep a separate, easily-cleared storage area per file, and a re-downloaded copy of the file starts with an empty one. For dependable saving, open the app from a web address.</p>'
+    : '';
+  const err = kvLastError ? `<p style="font-size:13px;color:var(--ink-soft);">Last save problem: ${esc(kvLastError)}</p>` : '';
+  openModal('Storage', `<p style="font-size:14px;">${esc(line)}</p><p style="font-size:13px;color:var(--ink-soft);">This app\u2019s own data is about ${fmtInt(Math.round(storageUsageChars()/1024))} KB.</p><p style="font-size:13px;">${esc(mode)} ${esc(verdict)}</p><p style="font-size:13px;color:var(--ink-soft);">${esc(last)}</p>${err}${origin}`, `<button class="btn primary" data-action="close-modal">Close</button>`);
 }
 
 let STATE = {
