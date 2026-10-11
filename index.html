@@ -2558,18 +2558,72 @@ function evolvesFrom(s){
    you own that the built-in dex doesn't have). Saved to STATE.customSpecies
    so it survives reloads and reimports, and gets its own binder slot right
    away via rebuildBinder(). */
-function openAddSpeciesModal(){
-  const state = { group:'', category:'', subcategory:'', types: [] };
+function openAddSpeciesModal(prefill){
+  const FORM_LABELS = ['Alolan Form','Galarian Form','Hisuian Form','Paldean Form','Mega Evolution','Gigantamax Form','Named Form','Costume Form','Battle Form','Type Form','Gender Form','Form'];
+  const PREFIX_FORMS = [['alolan ','Alolan Form'],['galarian ','Galarian Form'],['hisuian ','Hisuian Form'],['paldean ','Paldean Form'],['mega ','Mega Evolution'],['gigantamax ','Gigantamax Form']];
+  const state = {
+    name:'', dex:'', gen:'', group:'', category:'', subcategory:'', types:[],
+    base:'', line:'own', stage:1, form:'', formTouched:false
+  };
+  if(prefill && typeof prefill === 'object') Object.assign(state, prefill);
+  function baseSp(){ return state.base ? speciesByName.get(state.base) : null; }
+  function sync(){
+    const n = $('#newSpName'); if(!n) return;
+    state.name = n.value; state.dex = $('#newSpDex').value; state.gen = $('#newSpGen').value;
+    state.base = ($('#newSpBase').value||'').trim();
+    const ln = $('#newSpLine'); if(ln) state.line = ln.value;
+    const st = $('#newSpStage'); if(st) state.stage = parseInt(st.value,10)||1;
+    const fm = $('#newSpForm'); if(fm) state.form = fm.value;
+  }
+  // Fill in everything we can from the Pokémon it is based on.
+  function applyBase(){
+    const b = baseSp(); if(!b) return;
+    state.group = b.group; state.category = b.category; state.subcategory = b.subcategory;
+    state.types = (b.types||[]).slice();
+    state.dex = b.dex ? String(b.dex) : '';
+    state.gen = b.generation || '';
+    state.line = 'same';
+    state.stage = b.evoOrder || 1;
+  }
+  function autoForm(){
+    if(state.formTouched) return;
+    const low = (state.name||'').trim().toLowerCase();
+    const hit = PREFIX_FORMS.find(p => low.startsWith(p[0]));
+    state.form = hit ? hit[1] : '';
+  }
   function body(){
     const cats = CATEGORY_ORDER[state.group] || [];
     if(!cats.includes(state.category)) state.category = '';
     const subs = state.category ? (SUBCATEGORY_ORDER[state.category] || [state.category]) : [];
     if(!subs.includes(state.subcategory)) state.subcategory = '';
+    const b = baseSp();
+    const famName = b ? (b.evoFamily || b.name) : '';
+    const forms = state.form && !FORM_LABELS.includes(state.form) ? [state.form].concat(FORM_LABELS) : FORM_LABELS;
     return `
-      <div class="field"><label>Name</label><input type="text" id="newSpName" maxlength="60" placeholder="e.g. Galarian Sirfetch'd"></div>
+      <div class="field"><label>Name</label><input type="text" id="newSpName" maxlength="60" placeholder="e.g. Galarian Perrserker" value="${esc(state.name)}"></div>
+      <div class="field"><label>Copy details from an existing Pokémon (optional)</label>
+        <input type="text" id="newSpBase" list="newSpBaseList" placeholder="e.g. Perrserker" autocomplete="off" value="${esc(state.base)}">
+        <datalist id="newSpBaseList">${SPECIES.map(s=>`<option value="${esc(s.name)}"></option>`).join('')}</datalist>
+        <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">Pick one and its category, types, Dex # and evolution line are filled in for you. You can still change anything below.</div>
+      </div>
+      ${b ? `
       <div class="row2">
-        <div class="field"><label>Dex # (leave blank if it has none)</label><input type="number" min="1" id="newSpDex"></div>
-        <div class="field"><label>Generation</label><input type="text" id="newSpGen" placeholder="e.g. Generation 9, or Custom"></div>
+        <div class="field"><label>Evolution line</label>
+          <select id="newSpLine">
+            <option value="same" ${state.line==='same'?'selected':''}>Same line as ${esc(b.name)} (${esc(famName)})</option>
+            <option value="own" ${state.line!=='same'?'selected':''}>Its own separate line</option>
+          </select>
+        </div>
+        <div class="field"><label>Stage in the line</label>
+          <select id="newSpStage">${[1,2,3,4].map(n=>`<option value="${n}" ${state.stage===n?'selected':''}>Stage ${n}</option>`).join('')}</select>
+        </div>
+      </div>` : ''}
+      <div class="field"><label>Is it a special form of another Pokémon?</label>
+        <select id="newSpForm"><option value="">No — a regular Pokémon</option>${forms.map(f=>`<option value="${esc(f)}" ${state.form===f?'selected':''}>${esc(f)}</option>`).join('')}</select>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Dex # (leave blank if it has none)</label><input type="number" min="1" id="newSpDex" value="${esc(state.dex)}"></div>
+        <div class="field"><label>Generation</label><input type="text" id="newSpGen" placeholder="e.g. Generation 9, or Custom" value="${esc(state.gen)}"></div>
       </div>
       <div class="field"><label>Types (pick up to 2)</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -2585,21 +2639,31 @@ function openAddSpeciesModal(){
       <div class="field"><label>Subcategory</label>
         <select id="newSpSubcategory" ${!state.category?'disabled':''}><option value="">— choose —</option>${subs.map(s=>`<option value="${esc(s)}" ${state.subcategory===s?'selected':''}>${esc(s)}</option>`).join('')}</select>
       </div>
-      <p style="font-size:12px;color:var(--ink-soft);margin-top:6px;">It'll start as its own single-stage entry. If it belongs in an existing evolution family, use "Edit family" on the Evolutions page afterward to link it up.</p>
+      <p style="font-size:12px;color:var(--ink-soft);margin-top:6px;">It gets its own pocket in the binder, placed with its evolution line inside the category you choose.</p>
     `;
   }
-  function paint(){
-    const keep = { name:$('#newSpName')?.value||'', dex:$('#newSpDex')?.value||'', gen:$('#newSpGen')?.value||'' };
+  function paint(skipSync){
+    if(!skipSync) sync();
+    autoForm();
     $('#addSpBody').innerHTML = body();
-    $('#newSpName').value = keep.name; $('#newSpDex').value = keep.dex; $('#newSpGen').value = keep.gen;
     wire();
   }
   function wire(){
-    $('#newSpGroup').addEventListener('change', e => { state.group = e.target.value; state.category=''; state.subcategory=''; paint(); });
-    $('#newSpCategory').addEventListener('change', e => { state.category = e.target.value; state.subcategory=''; paint(); });
+    $('#newSpGroup').addEventListener('change', e => { sync(); state.group = e.target.value; state.category=''; state.subcategory=''; paint(); });
+    $('#newSpCategory').addEventListener('change', e => { sync(); state.category = e.target.value; state.subcategory=''; paint(); });
     $('#newSpSubcategory').addEventListener('change', e => { state.subcategory = e.target.value; });
+    $('#newSpName').addEventListener('change', () => { sync(); const before = state.form; autoForm(); if(state.form !== before) paint(); });
+    $('#newSpBase').addEventListener('change', () => {
+      sync();
+      const b = baseSp();
+      if(state.base && !b){ toast('No Pokémon with that exact name — pick one from the list.'); return; }
+      if(b){ applyBase(); state.formTouched = false; paint(true); return; }
+      paint();
+    });
+    const fm = $('#newSpForm'); if(fm) fm.addEventListener('change', () => { sync(); state.formTouched = true; });
     $$('.newsp-type-chip').forEach(chip => {
       chip.addEventListener('click', () => {
+        sync();
         const t = chip.dataset.type;
         const idx = state.types.indexOf(t);
         if(idx>=0) state.types.splice(idx,1);
@@ -2614,28 +2678,44 @@ function openAddSpeciesModal(){
   `);
   wire();
   $('#addSpSaveBtn').addEventListener('click', () => {
-    const name = ($('#newSpName').value||'').trim();
+    sync();
+    const name = (state.name||'').trim();
     if(!name){ toast('Give it a name.'); return; }
-    if(speciesByName.has(name)){ toast('A Pokémon with that exact name already exists — search for it in the Pokédex.'); return; }
+    if(speciesByName.has(name) || speciesNameByLower.has(name.toLowerCase()) || RENAMED_FROM.hasOwnProperty(name)){ toast('A Pokémon with that name already exists — search for it in the Pokédex.'); return; }
+    if(state.base && !baseSp()){ toast('The "copy details from" Pokémon isn\'t in the list — pick one from the list or clear that box.'); return; }
     if(!state.group || !state.category || !state.subcategory){ toast('Choose a group, category, and subcategory.'); return; }
-    const dexRaw = $('#newSpDex').value;
-    const dex = dexRaw ? (parseInt(dexRaw,10)||null) : null;
-    const generation = ($('#newSpGen').value||'').trim() || 'Custom';
+    const dex = state.dex ? (parseInt(state.dex,10)||null) : null;
+    const generation = (state.gen||'').trim() || 'Custom';
+    const b = baseSp();
+    const sameLine = !!(b && state.line === 'same');
     const sp = {
       id: 'custom-'+Date.now(),
       dex, name, group: state.group, category: state.category, subcategory: state.subcategory,
-      generation, evoFamily: name, evoOrder: 1,
+      generation, evoFamily: sameLine ? (b.evoFamily || b.name) : name,
+      evoOrder: sameLine ? (state.stage || 1) : 1,
       types: state.types.length ? state.types.slice() : ['Normal'],
     };
+    if(state.form){
+      sp.variant = state.form;
+      let baseName = b ? (b.baseSpecies || b.name) : null;
+      if(!b){
+        const low = name.toLowerCase();
+        const hit = PREFIX_FORMS.find(p => low.startsWith(p[0]));
+        if(hit){ const stripped = name.slice(hit[0].length); if(speciesByName.has(stripped)) baseName = stripped; }
+      }
+      if(baseName && baseName !== name) sp.baseSpecies = baseName;
+    }
     SPECIES.push(sp);
-    speciesByName.set(sp.name, sp);
     STATE.customSpecies.push(sp);
+    applySpeciesDeletions();   // refreshes every name lookup so imports can match the new name too
     persist('customSpecies');
     STATE.categoryOverrides[sp.name] = { group: sp.group, category: sp.category, subcategory: sp.subcategory };
     persist('categoryOverrides');
     rebuildBinder();
     closeModal();
-    toast(`${name} added — it has a spot in the binder now.`);
+    const slot = binderSlotBySpecies.get(name);
+    toast(slot ? `${name} added — page ${slot.page}, pocket ${slot.pocket}.` : `${name} added — it has a spot in the binder now.`);
+    if(slot){ location.hash = '#/binder/' + slot.page; }
     render();
   });
 }
@@ -3589,7 +3669,10 @@ function renderBinder(args){
   return `
     <div class="pagehead">
       <div><h1>Binder</h1><div class="sub">3 × 3 physical layout · ${fmtInt(BINDER.length)} pockets across ${BINDER_MAX_PAGE} pages</div></div>
-      <button class="btn ${binderEditMode?'accent':''}" data-action="toggle-binder-edit">${ICONS.edit} ${binderEditMode?'Done editing labels':'Edit labels'}</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" data-action="open-add-species">${ICONS.plus} Add Pokémon</button>
+        <button class="btn ${binderEditMode?'accent':''}" data-action="toggle-binder-edit">${ICONS.edit} ${binderEditMode?'Done editing labels':'Edit labels'}</button>
+      </div>
     </div>
     <div class="toolbar">
       <div class="gs-wrap" style="max-width:300px;">
