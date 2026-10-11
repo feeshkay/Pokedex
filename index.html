@@ -624,6 +624,8 @@ const ICONS = {
 const speciesByName = new Map(SPECIES.map(s => [s.name, s]));
 const speciesById = new Map(SPECIES.map(s => [s.id, s]));
 const ORIGINAL_NAMES = new Map(SPECIES.map(s => [s.id, s.name]));   // built-in names, before any rename of yours
+const BUILTIN_SPECIES = SPECIES.slice();   // the full built-in dex, so a deleted Pokémon can always be brought back
+const DELETED_REDIRECT = {};      // built-in name of a Pokémon you deleted -> name its cards/imports go to (or null)
 const RENAMED_FROM = {};          // built-in name -> the name you gave it (so old names keep resolving)
 let _nameIndexesReady = false;    // true once speciesNameByLower exists
 const aliasLower = {};
@@ -854,6 +856,94 @@ function setSpeciesName(sp, to){
   if(orig !== undefined){ if(to === orig) delete RENAMED_FROM[orig]; else RENAMED_FROM[orig] = to; }
   if(_nameIndexesReady){ speciesNameByLower.clear(); SPECIES.forEach(x => speciesNameByLower.set(x.name.toLowerCase(), x.name)); }
 }
+/* ---- Deleting Pokémon ----
+   Built-in Pokémon are hidden by id (STATE.settings.deletedSpecies: id -> {to}) so they can be restored from
+   Settings; Pokémon you added by hand are removed outright. */
+function applySpeciesDeletions(){
+  const del = (STATE.settings && STATE.settings.deletedSpecies) || {};
+  const custom = SPECIES.filter(x => !ORIGINAL_NAMES.has(x.id) && (STATE.customSpecies||[]).some(c => c && c.id === x.id));
+  const keep = BUILTIN_SPECIES.filter(x => !del[x.id]);
+  SPECIES.length = 0;
+  keep.forEach(x => SPECIES.push(x)); custom.forEach(x => SPECIES.push(x));
+  speciesByName.clear(); SPECIES.forEach(x => speciesByName.set(x.name, x));
+  speciesById.clear(); keep.forEach(x => speciesById.set(x.id, x));
+  Object.keys(DELETED_REDIRECT).forEach(k => delete DELETED_REDIRECT[k]);
+  Object.keys(del).forEach(id => { const o = ORIGINAL_NAMES.get(id); if(o !== undefined) DELETED_REDIRECT[o] = del[id] && del[id].to || null; });
+  SPECIES.forEach(x => { if(x.baseSpecies && !speciesByName.has(x.baseSpecies) && DELETED_REDIRECT.hasOwnProperty(x.baseSpecies)) x.baseSpecies = DELETED_REDIRECT[x.baseSpecies] || undefined; });
+  if(_nameIndexesReady){ speciesNameByLower.clear(); SPECIES.forEach(x => speciesNameByLower.set(x.name.toLowerCase(), x.name)); }
+}
+function deleteSpecies(name, target){
+  const sp = speciesByName.get(name); if(!sp) return false;
+  if(target && !speciesByName.has(target)) return false;
+  STATE.collection.forEach(c => { if(c.species === name) c.species = target || null; });
+  const drop = obj => { if(obj) delete obj[name]; };
+  drop(STATE.picks); drop(STATE.manualOwned); drop(STATE.categoryOverrides); drop(STATE.familyOverrides);
+  const hl = STATE.settings && STATE.settings.binderHl; if(hl && hl.decided) drop(hl.decided);
+  Object.keys(STATE.overrides||{}).forEach(k => { if(STATE.overrides[k] === name){ if(target) STATE.overrides[k] = target; else delete STATE.overrides[k]; } });
+  Object.keys(STATE.removedInApp||{}).forEach(id => { const r = STATE.removedInApp[id]; if(r && r.card && r.card.species === name) r.card.species = target || null; });
+  STATE.history.forEach(b => { if(Array.isArray(b.newSpecies)) b.newSpecies = b.newSpecies.filter(n => n !== name); });
+  Object.keys(STATE.settings.deletedSpecies||{}).forEach(id => { const e = STATE.settings.deletedSpecies[id]; if(e && e.to === name) e.to = target || null; });
+  if(ORIGINAL_NAMES.has(sp.id)){
+    if(!STATE.settings.deletedSpecies) STATE.settings.deletedSpecies = {};
+    STATE.settings.deletedSpecies[sp.id] = { to: target || null };
+    if(STATE.settings.speciesRenames) delete STATE.settings.speciesRenames[sp.id];
+    delete RENAMED_FROM[ORIGINAL_NAMES.get(sp.id)];
+  } else {
+    STATE.customSpecies = STATE.customSpecies.filter(x => x && x.id !== sp.id);
+  }
+  applySpeciesDeletions();
+  rebuildBinder();
+  ['collection','picks','manualOwned','categoryOverrides','familyOverrides','overrides','removedInApp','history','customSpecies','settings'].forEach(part => persist(part));
+  return true;
+}
+function restoreDeletedSpecies(id){
+  const o = ORIGINAL_NAMES.get(id);
+  if(o === undefined || !STATE.settings.deletedSpecies || !STATE.settings.deletedSpecies[id]) return false;
+  if(speciesByName.has(o)){ toast('Another Pokémon is already using the name "' + o + '". Rename it first.'); return false; }
+  delete STATE.settings.deletedSpecies[id];
+  applySpeciesDeletions(); applySpeciesRenames();
+  rebuildBinder(); persist('settings');
+  return true;
+}
+function openDeleteSpeciesModal(name){
+  const sp = speciesByName.get(name); if(!sp) return;
+  const n = STATE.collection.filter(c => c.species === name).length;
+  const base = sp.baseSpecies && speciesByName.has(sp.baseSpecies) ? sp.baseSpecies : null;
+  const optHtml = `
+    <div class="field" style="margin-top:10px;"><label>${n} card${n===1?'':'s'} in your collection ${n===1?'is':'are'} filed under ${esc(name)}. What should happen to ${n===1?'it':'them'}?</label>
+      <select id="delSpMode">
+        ${base ? `<option value="base">Move ${n===1?'it':'them'} to ${esc(base)}</option>` : ''}
+        <option value="other">Move ${n===1?'it':'them'} to another Pokémon…</option>
+        <option value="none">Leave ${n===1?'it':'them'} without a Pokémon (unlinked)</option>
+      </select>
+      <input type="text" id="delSpOther" list="delSpList" placeholder="Type a Pokémon name" style="display:none;margin-top:8px;">
+      <datalist id="delSpList">${SPECIES.filter(x => x.name !== name).map(x => `<option value="${esc(x.name)}"></option>`).join('')}</datalist>
+    </div>`;
+  openModal('Delete ' + name + '?', `
+    <p style="font-size:13.5px;">This removes <strong>${esc(name)}</strong> from the Pokédex and from the binder. Everything after it in the binder shifts up one pocket, so pages further along will change.</p>
+    ${n ? optHtml : ''}
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:10px;">You can bring it back later from Settings → Deleted Pokémon${ORIGINAL_NAMES.has(sp.id) ? '' : ' (not for Pokémon you added by hand, which are removed for good)'}. Imports will no longer file cards under it.</p>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="delSpGo">Delete</button>`);
+  const mode = $('#delSpMode'), other = $('#delSpOther');
+  if(mode) mode.addEventListener('change', () => { other.style.display = mode.value === 'other' ? '' : 'none'; if(mode.value === 'other') other.focus(); });
+  if(mode && !base && mode.value === 'other'){ other.style.display = ''; }
+  $('#delSpGo').addEventListener('click', () => {
+    let target = null;
+    if(n && mode){
+      if(mode.value === 'base') target = base;
+      else if(mode.value === 'other'){
+        const typed = (other.value || '').trim();
+        const hit = speciesNameByLower.get(typed.toLowerCase());
+        if(!hit || hit === name){ toast('Choose a Pokémon from the list.'); return; }
+        target = hit;
+      }
+    }
+    if(!deleteSpecies(name, target)){ toast('Could not delete that Pokémon.'); return; }
+    closeModal();
+    toast(name + ' deleted' + (n ? (target ? ' — ' + n + ' card' + (n===1?'':'s') + ' moved to ' + target : ' — ' + n + ' card' + (n===1?'':'s') + ' left unlinked') : '') + '.');
+    location.hash = '#/pokedex'; render();
+  });
+}
 function applySpeciesRenames(){
   SPECIES.forEach(sp => { const o = ORIGINAL_NAMES.get(sp.id); if(o !== undefined && sp.name !== o) setSpeciesName(sp, o); });
   const map = (STATE.settings && STATE.settings.speciesRenames) || {};
@@ -927,6 +1017,7 @@ function openRenameSpeciesModal(name){
 
 // Apply any saved recategorizations onto SPECIES before anything else reads it,
 // then recompute the binder layout so it reflects them from the first render.
+applySpeciesDeletions();
 applySpeciesRenames();
 Object.keys(STATE.categoryOverrides).forEach(nm => {
   const sp = SPECIES.find(s => s.name === nm);
@@ -1354,7 +1445,10 @@ function resolveSpecies(rawName){
     for(const o in RENAMED_FROM){ if(o.toLowerCase() === t) return RENAMED_FROM[o]; }
   }
   const r = resolveSpeciesCore(rawName);
-  return r ? (RENAMED_FROM[r] || r) : null;   // alias tables still point at built-in names
+  if(!r) return null;
+  // alias tables still point at built-in names: follow renames, and send a deleted Pokémon's names to where you moved its cards
+  if(!speciesByName.has(r) && Object.prototype.hasOwnProperty.call(DELETED_REDIRECT, r)) return DELETED_REDIRECT[r];
+  return RENAMED_FROM[r] || r;
 }
 function resolveSpeciesCore(rawName){
   const key = norm(rawName);
@@ -1848,6 +1942,10 @@ document.addEventListener('click', (e) => {
     render();
     return;
   }
+  const delSpBtn = e.target.closest('[data-action="delete-species"]');
+  if(delSpBtn){ openDeleteSpeciesModal(delSpBtn.dataset.species); return; }
+  const resSpBtn = e.target.closest('[data-action="restore-species"]');
+  if(resSpBtn){ if(restoreDeletedSpecies(resSpBtn.dataset.id)){ toast('Pokémon restored.'); render(); } return; }
   const renSpBtn = e.target.closest('[data-action="rename-species"]');
   if(renSpBtn){ openRenameSpeciesModal(renSpBtn.dataset.species); return; }
   const recatBtn = e.target.closest('[data-action="recategorize"]');
@@ -2633,7 +2731,10 @@ function renderSpeciesDetail(args){
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
-        <button class="btn ghost sm" data-action="rename-species" data-species="${esc(s.name)}">${ICONS.edit} Rename</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn ghost sm" data-action="rename-species" data-species="${esc(s.name)}">${ICONS.edit} Rename</button>
+          <button class="btn ghost sm" data-action="delete-species" data-species="${esc(s.name)}">Delete</button>
+        </div>
         ${slot ? `<button class="btn" data-nav-binder="${slot.page}">${ICONS.binder} View in binder — page ${slot.page}</button>` : ''}
         ${cards.length===0 ? `<button class="btn ${STATE.manualOwned[name]?'accent':'ghost'} sm" data-action="toggle-manual-owned" data-species="${esc(name)}">${STATE.manualOwned[name]?ICONS.check+' Marked as owned':ICONS.plus+' Mark as owned'}</button>` : ''}
       </div>
@@ -4541,6 +4642,12 @@ function renderSettings(){
         <button class="btn" id="exportTaxCsvBtn">Export categorization list (.csv)</button>
       </div>
     </div>
+    ${(() => { const ids = Object.keys(STATE.settings.deletedSpecies || {}).filter(id => ORIGINAL_NAMES.has(id)); return ids.length ? `
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="section-title" style="margin-top:0;">Deleted Pokémon</div>
+      <p style="color:var(--ink-soft);font-size:13px;">Restoring one puts it back in the Pokédex and binder. Cards you moved off it stay where they are.</p>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${ids.map(id => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><span>${esc(ORIGINAL_NAMES.get(id))}</span><button class="btn sm" data-action="restore-species" data-id="${esc(id)}">Restore</button></div>`).join('')}</div>
+    </div>` : ''; })()}
     <div class="panel" style="margin-bottom:16px;">
       <div class="section-title" style="margin-top:0;">Restore backup</div>
       <p style="color:var(--ink-soft);font-size:13px;">Restoring replaces everything currently in this app with the contents of the backup file.</p>
@@ -4651,6 +4758,7 @@ function restoreBackup(file){
             speciesByName.set(sp.name, sp);
           }
         });
+        applySpeciesDeletions();
         applySpeciesRenames();
         Object.keys(STATE.categoryOverrides).forEach(nm => {
           const sp = SPECIES.find(s => s.name === nm);
