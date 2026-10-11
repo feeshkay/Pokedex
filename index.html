@@ -3900,7 +3900,18 @@ function renderImportDetail(ids){
 
   let body;
   if(!shown.length){
-    body = `<div class="emptystate card">${ICONS.empty}<h3>${allDeleted ? 'These imports\u2019 cards were deleted' : 'No cards to show'}</h3></div>`;
+    let why = '';
+    if(!allDeleted && !items.length && !multi){
+      const b0 = batches[0];
+      const parts = [];
+      if(b0.unchanged) parts.push(`${fmtInt(b0.unchanged)} card${b0.unchanged===1?' was':'s were'} already in your collection with nothing different`);
+      if(b0.heldBack) parts.push(`${fmtInt(b0.heldBack)} ${b0.heldBack===1?'was':'were'} held back (removed in the app, still in Collectr)`);
+      if(b0.reviewSkipped) parts.push(`${fmtInt(b0.reviewSkipped)} ${b0.reviewSkipped===1?'was':'were'} skipped because no species was chosen`);
+      why = `<p style="color:var(--ink-soft);font-size:14px;max-width:520px;margin:6px auto 0;">This import didn\u2019t add or change anything${b0.totalRows ? ' (the file had ' + fmtInt(b0.totalRows) + ' rows' + (b0.inScope!=null && b0.inScope!==b0.totalRows ? ', ' + fmtInt(b0.inScope) + ' in the chosen portfolio' : '') + ')' : ''}. ${parts.length ? esc(parts.join('; ')) + '.' : ''} That usually means this file (or one with the same cards) was already imported. If you expected new cards, check that the right portfolio was chosen and that the cards\u2019 Date Added is on or after your cutoff.</p>`;
+    } else if(!allDeleted && items.length && importDetailFilter !== 'all'){
+      why = `<p style="color:var(--ink-soft);font-size:14px;margin:6px 0 0;">Nothing matches this filter. Choose <strong>All</strong> above to see every card in this import.</p>`;
+    }
+    body = `<div class="emptystate card">${ICONS.empty}<h3>${allDeleted ? 'These imports\u2019 cards were deleted' : (!items.length && !multi ? 'Nothing new in this import' : 'No cards to show')}</h3>${why}</div>`;
   } else if(importDetailSort === 'binder'){
     // grouped by binder page so you can work through the binder in order
     const groups = [];
