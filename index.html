@@ -1793,6 +1793,8 @@ document.addEventListener('click', (e) => {
   if(delImportBtn){ deleteImportCards(delImportBtn.dataset.batch); return; }
   const importFilterBtn = e.target.closest('[data-action="import-filter"]');
   if(importFilterBtn){ importDetailFilter = importFilterBtn.dataset.value; render(); return; }
+  const exGo = e.target.closest('[data-action="extras-goto"]');
+  if(exGo){ extrasPage = parseInt(exGo.dataset.page,10) || 1; render(); return; }
   const hlWin = e.target.closest('[data-action="binder-hl-window"]');
   if(hlWin){
     const st = binderHlState(); st.window = hlWin.dataset.value;
@@ -1905,6 +1907,7 @@ function wireScreenEvents(routeId){
     wireSpeciesSearchInput($('#binderSearch'), $('#binderSearchDropdown'));
   }
   else if(routeId === 'extras'){
+    $('#binderHlDate')?.addEventListener('change', e => { binderHlState().sinceDate = e.target.value || null; persist('settings'); render(); });
     $('#extrasSearch')?.addEventListener('input', debounce(e => { extrasFilter.q = e.target.value; extrasPage = 1; render(); }, 220));
     $('#extrasPrev')?.addEventListener('click', () => { extrasPage = Math.max(1, extrasPage-1); render(); });
     $('#extrasNext')?.addEventListener('click', () => { extrasPage = extrasPage+1; render(); });
@@ -3211,6 +3214,7 @@ function binderHighlights(){
   if(!items.length) return out;
   const decided = binderHlState().decided || {};
   const alts = new Map();
+  const keptExtras = new Set();
   items.forEach(it => {
     const c = it.card;
     if(!c.species) return;
@@ -3218,9 +3222,13 @@ function binderHighlights(){
     if(pickId === c.id){
       if(it.status === 'older') return;   // an older card that was just filled in: nothing to place
       out.set(c.species, it.status==='new' ? 'new' : it.status==='update' ? 'update' : 'imported');
-    } else if(pickId && it.status==='new' && !(decided[c.species]||[]).includes(c.id)){
-      if(!alts.has(c.species)) alts.set(c.species, []);
-      alts.get(c.species).push(c);
+    } else if(it.status==='new'){
+      // New copy that is not the binder card. No binder card chosen yet, or a swap you haven't decided on: ask.
+      // Already decided "keep the current one": it still goes to the extras binder, so mark the pocket as updated.
+      if(!pickId || !(decided[c.species]||[]).includes(c.id)){
+        if(!alts.has(c.species)) alts.set(c.species, []);
+        alts.get(c.species).push(c);
+      } else keptExtras.add(c.species);
     }
   });
   alts.forEach((cards, sp) => {
@@ -3228,6 +3236,7 @@ function binderHighlights(){
     out.set(sp, 'decide');
     binderHlAlts.set(sp, cards);
   });
+  keptExtras.forEach(sp => { if(!out.has(sp)) out.set(sp, 'update'); });
   return out;
 }
 /* "Do I swap the new card in?" — a small chooser opened from the decide icon. */
@@ -3246,8 +3255,10 @@ function openBinderDecideModal(species){
       ${c.id===pickId ? '' : `<button class="btn sm primary" data-action="binder-decide-pick" data-species="${esc(species)}" data-card="${esc(c.id)}">Put this one in the binder</button>`}
     </div>`).join('');
   openModal(`${species}: which card goes in the binder?`,
-    `<p style="font-size:13.5px;">You already have a card for ${esc(species)} in the binder, and a new one just came in. Pick the one you want in the binder; the others stay in your extras.</p>${rows}`,
-    `<button class="btn" data-action="binder-decide-keep" data-species="${esc(species)}">Keep the current one</button>`);
+    pickId
+      ? `<p style="font-size:13.5px;">You already have a card for ${esc(species)} in the binder, and a new one just came in. Pick the one you want in the binder; the others stay in your extras.</p>${rows}`
+      : `<p style="font-size:13.5px;">You have new cards for ${esc(species)}, but none is chosen for the binder yet. Pick the one that goes in the binder; the others go to your extras.</p>${rows}`,
+    pickId ? `<button class="btn" data-action="binder-decide-keep" data-species="${esc(species)}">Keep the current one</button>` : '');
 }
 function binderDecideKeep(species){
   binderHighlights();
@@ -3275,6 +3286,49 @@ function markBinderCaughtUp(){
   const st = binderHlState();
   st.caughtUpAt = new Date().toISOString(); st.on = []; st.off = []; st.decided = {};
   persist('settings');
+}
+function binderHlWindowControlsHTML(){
+  const winStart = binderHlWindowStart();
+  return `<div class="hl-window" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        <span class="import-controls-label">Show as new</span>
+        ${[['today','Today'],['7','Last 7 days'],['30','Last 30 days'],['date','Since date…'],['imports','By import']].map(([v,l]) => `<button class="chip ${binderHlWindow()===v?'active':''}" data-action="binder-hl-window" data-value="${v}">${l}</button>`).join('')}
+        ${binderHlWindow()==='date' ? `<input type="date" id="binderHlDate" value="${esc(binderHlState().sinceDate || '')}" style="padding:4px 8px;border-radius:8px;border:1px solid var(--line-strong);">` : ''}
+      </div>
+      ${winStart ? `<div style="font-size:12.5px;color:var(--ink-soft);margin-top:6px;">Based on the <strong>Date Added</strong> column in your CSV: ${esc(binderHlWindowLabel())}. A card also counts as updated if an import uploaded in this window changed its quantity or date.</div>` : ''}`;
+}
+/* card id -> 'new' | 'update', for the extras binder (same window as the main binder). */
+function binderHlCardStatus(){
+  const m = new Map();
+  binderHlItems().forEach(it => {
+    if(it.status === 'new') m.set(it.card.id, 'new');
+    else if(it.status === 'update' && !m.has(it.card.id)) m.set(it.card.id, 'update');
+  });
+  return m;
+}
+function extrasHighlightPanelHTML(rows, status){
+  if(!STATE.history.length) return '';
+  const pages = new Map(); let nNew = 0, nUpd = 0; const spNew = new Set(), spUpd = new Set();
+  rows.forEach(r => {
+    if(r.type !== 'POKÉMON' || !r.cardInfo) return;
+    const st = status.get(r.cardInfo.cardId); if(!st) return;
+    if(st === 'new'){ nNew++; spNew.add(r.species.name); } else { nUpd++; spUpd.add(r.species.name); }
+    const cur = pages.get(r.page);
+    if(cur === undefined || (st === 'new' && cur !== 'new')) pages.set(r.page, st);
+  });
+  const pageList = [...pages.keys()].sort((a,b) => a-b);
+  const next = pageList.find(pg => pg > extrasPage) ?? pageList[0];
+  const summary = (nNew || nUpd)
+    ? `<strong>${fmtInt(nNew)}</strong> new extra cop${nNew===1?'y':'ies'} (${fmtInt(spNew.size)} Pokémon)${nUpd ? ` · <strong>${fmtInt(nUpd)}</strong> updated (${fmtInt(spUpd.size)} Pokémon)` : ''} · on <strong>${fmtInt(pageList.length)}</strong> page${pageList.length===1?'':'s'}`
+    : 'No extras match this window.';
+  return `
+    <div class="card hl-panel">
+      <div class="hl-head">
+        <div><div class="hl-title">Recently added to extras</div><div class="hl-sum">${summary}</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">${pageList.length ? `<button class="btn sm primary" data-action="extras-goto" data-page="${next}">Next page to update → Pg ${next}</button>` : ''}</div>
+      </div>
+      ${binderHlWindowControlsHTML()}
+      ${pageList.length ? `<div class="hl-pages"><span class="import-controls-label">Pages</span>${pageList.map(pg => `<button class="chip sm hl-pg hl-pg-${pages.get(pg)}" data-action="extras-goto" data-page="${pg}">${pg}</button>`).join('')}</div>` : ''}
+    </div>`;
 }
 function binderHighlightPanelHTML(hl){
   const imports = STATE.history.filter(b => !b.cardsDeleted);
@@ -3304,12 +3358,7 @@ function binderHighlightPanelHTML(hl){
           ${ids.size ? `<button class="btn sm" data-action="binder-hl-done">Mark all as placed</button>` : ''}
         </div>
       </div>
-      <div class="hl-window" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-        <span class="import-controls-label">Show as new</span>
-        ${[['today','Today'],['7','Last 7 days'],['30','Last 30 days'],['date','Since date…'],['imports','By import']].map(([v,l]) => `<button class="chip ${binderHlWindow()===v?'active':''}" data-action="binder-hl-window" data-value="${v}">${l}</button>`).join('')}
-        ${binderHlWindow()==='date' ? `<input type="date" id="binderHlDate" value="${esc(binderHlState().sinceDate || '')}" style="padding:4px 8px;border-radius:8px;border:1px solid var(--line-strong);">` : ''}
-      </div>
-      ${winStart ? `<div style="font-size:12.5px;color:var(--ink-soft);margin-top:6px;">Based on the <strong>Date Added</strong> column in your CSV: ${esc(binderHlWindowLabel())}. A card also counts as updated if an import uploaded in this window changed its quantity or date.</div>` : ''}
+      ${binderHlWindowControlsHTML()}
       ${winStart ? '' : `<div class="import-chip-scroll" style="margin-top:8px;">${imports.map(b => `<button class="chip ${ids.has(b.id)?'active':''}" data-action="binder-hl-toggle" data-batch="${esc(b.id)}" title="${esc(new Date(b.date).toLocaleString())}">${esc(b.filename||'Import')} · ${esc(new Date(b.date).toLocaleDateString())} ${esc(new Date(b.date).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}))}</button>`).join('')}</div>`}
       ${pageList.length ? `<div class="hl-pages"><span class="import-controls-label">Pages</span>${pageList.map(pg => `<button class="chip sm hl-pg hl-pg-${pages.get(pg)}" data-goto-binder="${pg}">${pg}</button>`).join('')}</div>` : ''}
     </div>`;
@@ -3497,6 +3546,7 @@ function renderExtras(){
   while(pageCells.length < 9) pageCells.push(null);
 
   const totalExtraCopies = Array.from(extraMap.values()).reduce((a,arr)=>a+arr.length,0);
+  const hlStatus = binderHlCardStatus();
 
   return `
     <div class="pagehead">
@@ -3514,11 +3564,12 @@ function renderExtras(){
       </div>
       <button class="btn" id="extrasNext" ${extrasPage>=totalPages?'disabled':''}>Next ${ICONS.right}</button>
     </div>
-    <div class="binder-page"><div class="binder-grid">${pageCells.map(c=>renderExtraPocket(c)).join('')}</div></div>
+    ${extrasHighlightPanelHTML(rows, hlStatus)}
+    <div class="binder-page"><div class="binder-grid">${pageCells.map(c=>renderExtraPocket(c, hlStatus)).join('')}</div></div>
     `}
   `;
 }
-function renderExtraPocket(cell){
+function renderExtraPocket(cell, hlStatus){
   if(!cell) return `<div class="pocket empty"></div>`;
   if(cell.type === 'label'){
     return `<div class="pocket label"><div class="lv">LETTER</div><div class="nm">${esc(cell.display)}</div></div>`;
@@ -3526,8 +3577,10 @@ function renderExtraPocket(cell){
   const s = cell.species;
   const taxLabel = taxBreadcrumb(s);
   const fromName = evolvesFrom(s);
+  const mark = hlStatus && cell.cardInfo ? hlStatus.get(cell.cardInfo.cardId) : null;
   return `
-    <div class="pocket owned" data-nav-species="${esc(s.name)}">
+    <div class="pocket owned ${mark ? 'hl-'+mark : ''}" data-nav-species="${esc(s.name)}">
+      ${mark ? `<span class="hl-badge hl-badge-${mark}" title="${mark==='new' ? 'New copy from a recent import: add it to the extras binder' : 'Updated by a recent import (quantity or date changed)'}">${mark==='new' ? '✦ NEW' : '↻ UPDATED'}</span>` : ''}
       <div class="pocket-art">${speciesImgTag(s,'pocket-img')}</div>
       <div class="pocket-overlay">
         <div class="top">
