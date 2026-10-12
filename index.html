@@ -1164,6 +1164,12 @@ function autoAssignSinglePicks(onlySpecies){
    can't guess which one belongs in the main binder, so these need a person
    to choose. Optionally scoped to a set of species names (e.g. just the ones
    an import touched). */
+/* Binder location chip (page, pocket, slot) — tap to jump to that binder page. */
+function binderLocChipHTML(name){
+  const r = name ? binderSlotBySpecies.get(name) : null;
+  if(!r) return '';
+  return `<span class="chip sm" data-goto-binder="${r.page}" title="Where it goes in the binder">${ICONS.binder} Pg ${r.page}, pocket ${r.pocket} · slot ${fmtInt(r.slot)}</span>`;
+}
 function speciesNeedingPickReconciliation(onlySpecies){
   const bySpecies = new Map();
   STATE.collection.forEach(c => {
@@ -4131,7 +4137,7 @@ function renderReconcileSpecies(name){
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
         ${sp ? speciesImgTag(sp,'cardrow-img') : ''}
         <span style="font-family:var(--font-display);font-weight:600;">${esc(name)}</span>
-        ${(() => { const r = binderSlotBySpecies.get(name); return r ? `<span class="badge" style="margin-left:auto;white-space:nowrap;" title="Where it goes in the binder">Page ${r.page} · Pocket ${r.pocket} · Slot ${fmtInt(r.slot)}</span>` : ''; })()}
+        <span style="margin-left:auto;">${binderLocChipHTML(name)}</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         ${cards.map(c => `
@@ -4456,7 +4462,7 @@ function renderCollectrDiff(){
   const rowA = c => {
     const sp = c.species ? speciesByName.get(c.species) : null;
     return `<div class="cardrow"><div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
-      <div class="info"><div style="font-family:var(--font-display);font-weight:600;">${esc(c.species||c.productName)}</div>${diffCardLine(c)}
+      <div class="info"><div style="font-family:var(--font-display);font-weight:600;">${esc(c.species||c.productName)}</div>${binderLocChipHTML(c.species)}${diffCardLine(c)}
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn sm" data-action="collectr-remove" data-card="${esc(c.id)}">${ICONS.trash} Remove from app</button>
           <button class="btn sm ghost" data-action="collectr-keep" data-card="${esc(c.id)}">Keep in app</button>
@@ -4465,7 +4471,7 @@ function renderCollectrDiff(){
   const rowB = e => {
     const c = e.card; const sp = c.species ? speciesByName.get(c.species) : null;
     return `<div class="cardrow"><div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
-      <div class="info"><div style="font-family:var(--font-display);font-weight:600;">${esc(c.species||c.productName)}</div>
+      <div class="info"><div style="font-family:var(--font-display);font-weight:600;">${esc(c.species||c.productName)}</div>${binderLocChipHTML(c.species)}
         <div class="set">${esc(c.set)} · #${esc(c.cardNumber)}${c.variance?(' · '+esc(c.variance)):''} · ${esc(c.condition)} · Qty ${c.quantity}</div>
         <div class="meta">Removed here ${esc(new Date(e.removedAt).toLocaleDateString())} · still in Collectr</div>
         <div style="margin-top:6px;"><button class="btn sm" data-action="collectr-restore" data-card="${esc(e.id)}">Add back to app</button></div></div></div>`;
@@ -4524,7 +4530,7 @@ function renderDuplicates(){
             <div style="font-family:var(--font-display);font-weight:600;">${esc(g.name)}</div>
             <div class="set">${esc(g.set)} · #${esc(g.cardNumber)}</div>
           </div>
-          ${slot ? `<span class="chip sm" data-goto-binder="${slot.page}">${ICONS.binder} Pg ${slot.page}, pocket ${slot.pocket}</span>` : ''}
+          ${slot ? `<span class="chip sm" data-goto-binder="${slot.page}">${ICONS.binder} Pg ${slot.page}, pocket ${slot.pocket} · slot ${fmtInt(slot.slot)}</span>` : ''}
         </div>
         ${g.foils.map(c => line(c,'foil')).join('')}
         ${g.regulars.map(c => line(c,'regular')).join('')}
