@@ -4131,6 +4131,7 @@ function renderReconcileSpecies(name){
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
         ${sp ? speciesImgTag(sp,'cardrow-img') : ''}
         <span style="font-family:var(--font-display);font-weight:600;">${esc(name)}</span>
+        ${(() => { const r = binderSlotBySpecies.get(name); return r ? `<span class="badge" style="margin-left:auto;white-space:nowrap;" title="Where it goes in the binder">Page ${r.page} · Pocket ${r.pocket} · Slot ${fmtInt(r.slot)}</span>` : ''; })()}
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         ${cards.map(c => `
