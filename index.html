@@ -198,6 +198,7 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .toolcard-status.need{color:var(--crimson);}
 .toolcard-status.ok{color:var(--moss);}
 .badge.held{background:#f4e7cd;color:var(--brass);}
+.badge.skipped{background:#e6e3d8;color:#6b6b60;}
 .pair-card{padding:14px;margin-bottom:10px;}
 .pair-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-radius:8px;margin-top:4px;}
 .pair-line.regular{background:#f6dede;}
@@ -237,6 +238,11 @@ table.datatable tr:hover td{background:var(--paper-sunken);}
 .binder-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;flex-wrap:wrap;scroll-margin-top:72px;}
 .binder-toolbar.bottom{margin:16px 0 0;}
 .xmode{cursor:pointer;}
+.infogrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;font-size:13px;}
+details.panel > summary{list-style:none;}
+details.panel > summary::-webkit-details-marker{display:none;}
+details.panel > summary::after{content:' ▾';color:var(--ink-soft);font-size:12px;}
+details.panel[open] > summary::after{content:' ▴';}
 .xmode-pick{display:block;width:100%;text-align:left;margin-bottom:8px;padding:12px;}
 .xmode-pick b{display:block;}
 .xmode-pick span{font-size:12.5px;color:var(--ink-soft);}
@@ -891,7 +897,7 @@ function deleteSpecies(name, target){
   const drop = obj => { if(obj) delete obj[name]; };
   drop(STATE.picks); drop(STATE.manualOwned); drop(STATE.categoryOverrides); drop(STATE.familyOverrides);
   const hl = STATE.settings && STATE.settings.binderHl; if(hl && hl.decided) drop(hl.decided);
-  if(STATE.settings) drop(STATE.settings.extrasMode);
+  if(STATE.settings){ drop(STATE.settings.extrasMode); drop(STATE.settings.speciesNotes); }
   Object.keys(STATE.overrides||{}).forEach(k => { if(STATE.overrides[k] === name){ if(target) STATE.overrides[k] = target; else delete STATE.overrides[k]; } });
   Object.keys(STATE.removedInApp||{}).forEach(id => { const r = STATE.removedInApp[id]; if(r && r.card && r.card.species === name) r.card.species = target || null; });
   STATE.history.forEach(b => { if(Array.isArray(b.newSpecies)) b.newSpecies = b.newSpecies.filter(n => n !== name); });
@@ -970,7 +976,7 @@ function migrateSpeciesKey(from, to){
   const mv = obj => { if(obj && Object.prototype.hasOwnProperty.call(obj, from)){ obj[to] = obj[from]; delete obj[from]; } };
   mv(STATE.picks); mv(STATE.manualOwned); mv(STATE.categoryOverrides); mv(STATE.familyOverrides);
   const hl = STATE.settings && STATE.settings.binderHl; if(hl && hl.decided) mv(hl.decided);
-  if(STATE.settings) mv(STATE.settings.extrasMode);
+  if(STATE.settings){ mv(STATE.settings.extrasMode); mv(STATE.settings.speciesNotes); }
   Object.keys(STATE.overrides||{}).forEach(k => { if(STATE.overrides[k] === from) STATE.overrides[k] = to; });
   Object.keys(STATE.removedInApp||{}).forEach(id => { const r = STATE.removedInApp[id]; if(r && r.card && r.card.species === from) r.card.species = to; });
   STATE.history.forEach(b => { if(Array.isArray(b.newSpecies)) b.newSpecies = b.newSpecies.map(n => n === from ? to : n); });
@@ -1558,6 +1564,62 @@ function parseCollectrFile(filename, arrOfArrays){
   return out;
 }
 
+/* ---- Non-Pokémon detection + remembered skip list (saved in settings, so it is in backups) ---- */
+const NON_POKEMON_WORDS = /\b(energy|booster|packs?|boxes|box|tins?|bundles?|displays?|collections?|decks?|binders?|sleeves?|playmats?|coins?|dice|code card|stadium|supporter|trainer|toolkit|blister|case)\b/i;
+let _pokeWordIndex = null;
+function pokeWordIndex(){
+  if(_pokeWordIndex && _pokeWordIndex.n === SPECIES.length) return _pokeWordIndex;
+  const flat = t => String(t||'').toLowerCase().replace(/\(.*?\)/g,' ').replace(/[^a-z0-9é]+/g,' ').trim();
+  const phrases = new Set(), words = new Set();
+  SPECIES.forEach(sp => {
+    const nm = flat(sp.baseSpecies || sp.name);
+    if(nm.length >= 3) phrases.add(nm);
+    if(nm.length >= 5 && !nm.includes(' ')) words.add(nm);
+  });
+  _pokeWordIndex = { n: SPECIES.length, phrases:[...phrases], words:[...words], flat };
+  return _pokeWordIndex;
+}
+function editDistLE1(a,b){
+  if(a===b) return true;
+  if(Math.abs(a.length-b.length)>1) return false;
+  let i=0; while(i<a.length && i<b.length && a[i]===b[i]) i++;
+  if(a.length===b.length) return a.slice(i+1)===b.slice(i+1);
+  if(a.length>b.length) return a.slice(i+1)===b.slice(i);
+  return a.slice(i)===b.slice(i+1);
+}
+/* For a product that matched no species: is it plausibly a Pokémon card (a species name appears in it,
+   or a word is one letter off one), or is it energy / sealed product / an accessory / a trainer card? */
+function classifyUnmatchedProduct(productName){
+  const ix = pokeWordIndex();
+  const flat = ix.flat(productName);
+  if(NON_POKEMON_WORDS.test(String(productName||''))) return { nonPokemon:true, hint:null };
+  const padded = ' ' + flat + ' ';
+  const phrase = ix.phrases.filter(p => padded.includes(' '+p+' ')).sort((a,b)=>b.length-a.length)[0];
+  if(phrase) return { nonPokemon:false, hint:phrase };
+  const toks = flat.split(' ').filter(t => t.length>=5);
+  for(const t of toks){ const w = ix.words.find(w => editDistLE1(t,w)); if(w) return { nonPokemon:false, hint:w }; }
+  return { nonPokemon:true, hint:null };
+}
+function skipProductsMap(){ if(!STATE.settings.skipProducts) STATE.settings.skipProducts = {}; return STATE.settings.skipProducts; }
+function syncReviewDOM(){
+  if(!importState.preview) return;
+  const items = importState.preview.items;
+  $$('.review-species-select').forEach(sel => { const idx = parseInt(sel.dataset.reviewIdx,10); if(items[idx]) items[idx].manualSpecies = sel.value || undefined; });
+  $$('.review-skip').forEach(cb => { const idx = parseInt(cb.dataset.reviewIdx,10); if(items[idx]) items[idx].acceptUnlinked = cb.checked; });
+  $$('.review-nonpoke').forEach(cb => { const idx = parseInt(cb.dataset.reviewIdx,10); if(items[idx]) items[idx].skipNP = cb.checked; });
+}
+function importNpSelectAll(on){
+  syncReviewDOM();
+  importState.preview.items.forEach(it => { if(it.status==='review') it.skipNP = on ? !!it.nonPokemonGuess : false; });
+  render();
+}
+function unskipProduct(key){
+  const m = skipProductsMap(); const name = m[key]; delete m[key];
+  persist('settings');
+  toast((name||'That product') + ' will be checked on imports again.');
+  if(importState.preview) buildAndShowPreview(); else render();
+}
+
 /* Build an import preview from parsed rows, scoped to a chosen portfolio. */
 /* Read the file's "Date Added" text into a local date. Handles 2026-10-09,
    2026-10-09 14:22:11, 10/9/2026, 10/9/26, 9/10/2026 (day first when the first
@@ -1624,10 +1686,13 @@ function buildImportPreview(rows, portfolioFilter, cutoffInfo){
     const species = resolveSpecies(row.productName);
     const id = compositeKey(row);
     const existing = STATE.collection.find(c => c.id === id);
+    const skipKey = norm(row.productName);
+    const alwaysSkip = !!(STATE.settings.skipProducts && STATE.settings.skipProducts[skipKey]);
     const rowDate = row.hasDateAdded === false ? null : parseDateAdded(row.dateAdded);
     const recent = !cutoff || !cutoff.date || !rowDate || rowDate.getTime() >= cutoff.date.getTime();
     let status, refresh = false;
-    if(STATE.removedInApp[id]) status = 'held'; // you removed this in the app; Collectr still has it
+    if(alwaysSkip && !existing) status = 'skipped'; // a product you told the app to always skip
+    else if(STATE.removedInApp[id]) status = 'held'; // you removed this in the app; Collectr still has it
     else if(!species) status = 'review';
     else if(!existing) status = recent ? 'new' : 'old';
     else {
@@ -1637,7 +1702,13 @@ function buildImportPreview(rows, portfolioFilter, cutoffInfo){
       status = (qtyChanged || laterDate) ? 'update' : 'duplicate';
       refresh = status === 'duplicate' && (Math.abs((existing.marketPrice||0) - row.marketPrice) > 0.001 || Math.abs((existing.costPaid||0) - row.costPaid) > 0.001);
     }
-    return { row, species, id, status, existing, refresh };
+    const it = { row, species, id, status, existing, refresh };
+    if(status === 'review'){
+      const cls = classifyUnmatchedProduct(row.productName);
+      it.nonPokemonGuess = cls.nonPokemon; it.guessHint = cls.hint;
+      it.skipNP = cls.nonPokemon;          // detected non-Pokémon start out ticked to skip
+    }
+    return it;
   });
 
   const owned = new Set(STATE.collection.filter(c => c.species).map(c => c.species));
@@ -1648,7 +1719,7 @@ function buildImportPreview(rows, portfolioFilter, cutoffInfo){
 }
 
 function commitImport(preview, filename, chosenPortfolio){
-  let added=0, updated=0, unchanged=0, reviewSkipped=0, learned=0, heldBack=0, older=0;
+  let added=0, updated=0, unchanged=0, reviewSkipped=0, learned=0, heldBack=0, older=0, ignored=0;
   const batchId = uid();
   const touchedSpecies = new Set();
   const newIds = [], updatedIds = [], oldIds = [];
@@ -1656,6 +1727,12 @@ function commitImport(preview, filename, chosenPortfolio){
   const idSpecies = new Map();
   for(const item of preview.items){
     if(item.status === 'held'){ heldBack++; continue; }
+    if(item.status === 'skipped'){ ignored++; continue; }
+    if(item.status === 'review' && item.skipNP && !item.manualSpecies){
+      ignored++;
+      skipProductsMap()[norm(item.row.productName)] = item.row.productName; // remembered for every future import
+      continue;
+    }
     const species = item.species || (item.manualSpecies || null);
     if(!species && !item.acceptUnlinked){
       reviewSkipped++;
@@ -1713,18 +1790,19 @@ function commitImport(preview, filename, chosenPortfolio){
   // Remember exactly which cards Collectr had at this import, so the Tools
   // page can tell you where the app and Collectr disagree. Anything you'd
   // removed in the app that Collectr no longer lists is resolved: forget it.
-  const snapIds = [...new Set(preview.items.map(i => i.id))];
+  const snapIds = [...new Set(preview.items.filter(i => i.status !== 'skipped' && !(i.status==='review' && i.skipNP && !i.manualSpecies)).map(i => i.id))];
   STATE.collectrSnapshot = { date: new Date().toISOString(), filename, portfolio: chosenPortfolio, ids: snapIds };
   const snapSet = new Set(snapIds);
   Object.keys(STATE.removedInApp).forEach(id => { if(!snapSet.has(id)) delete STATE.removedInApp[id]; });
   persist('collectrSnapshot'); persist('removedInApp');
+  if(ignored) persist('settings');
   if(learned) persist('overrides');
   persist('collection');
   const batch = {
     id: batchId, date: new Date().toISOString(), filename,
     portfolio: chosenPortfolio,
     totalRows: preview.totalRows, inScope: preview.inScopeCount,
-    added, updated, unchanged, reviewSkipped,
+    added, updated, unchanged, reviewSkipped, ignored,
     newIds, updatedIds, oldIds, newSpecies, heldBack, older,
     cutoff: preview.cutoff && preview.cutoff.date ? preview.cutoff.date.toISOString() : null,
   };
@@ -1912,6 +1990,14 @@ document.addEventListener('click', (e) => {
   if(editBtn){ openCardEditor(editBtn.dataset.card); return; }
   const delBtn = e.target.closest('[data-action="delete-card"]');
   if(delBtn){ deleteCard(delBtn.dataset.card); return; }
+  const loreBtn = e.target.closest('[data-action="load-lore"]');
+  if(loreBtn){ loadLoreInto(loreBtn.dataset.species); return; }
+  const retryInfo = e.target.closest('[data-action="retry-info"]');
+  if(retryInfo){ const b = $('#spInfoBody'); if(b){ b.innerHTML = 'Loading Pokédex data…'; initSpeciesInfo(); } return; }
+  const npAll = e.target.closest('[data-action="import-np-all"]');
+  if(npAll){ importNpSelectAll(npAll.dataset.on === '1'); return; }
+  const unskipBtn = e.target.closest('[data-action="unskip-product"]');
+  if(unskipBtn){ unskipProduct(unskipBtn.dataset.key); return; }
   const exModeBtn = e.target.closest('[data-action="extras-mode"]');
   if(exModeBtn){ openExtrasModeModal(exModeBtn.dataset.species); return; }
   const exModePick = e.target.closest('[data-action="extras-mode-set"]');
@@ -2117,6 +2203,7 @@ function wireScreenEvents(routeId){
     $('#colPickOnly')?.addEventListener('click', () => { collectionFilter.pickOnly = !collectionFilter.pickOnly; render(); });
   }
   else if(routeId === 'pokedex'){
+    if($('#spInfoBody')) initSpeciesInfo();
     $('#pdxSearch')?.addEventListener('input', debounce(e => { pokedexFilter.q = e.target.value; render(); }, 220));
     $('#pdxGroup')?.addEventListener('change', e => { pokedexFilter.group = e.target.value; render(); });
     $('#pdxType')?.addEventListener('change', e => { pokedexFilter.type = e.target.value; render(); });
@@ -2158,7 +2245,8 @@ function wireScreenEvents(routeId){
     $('#changeCutoffBtn')?.addEventListener('click', () => { importState.preview = null; render(); });
     $('#buildPreviewBtn')?.addEventListener('click', buildAndShowPreview);
     $('#cancelImport')?.addEventListener('click', () => { resetImportState(); render(); });
-    $('#commitImportBtn')?.addEventListener('click', doCommitImport);
+    $$('.js-cancel-import').forEach(b => b.addEventListener('click', () => { resetImportState(); render(); }));
+    $$('.js-commit-import').forEach(b => b.addEventListener('click', doCommitImport));
     wireSpeciesPickers();
   }
   else if(routeId === 'settings'){
@@ -2820,6 +2908,275 @@ function renderSpeciesCard(s, selectMode, selected){
     </div>`;
 }
 
+/* ============================================================
+   Pokémon info — live Pokédex data (PokéAPI), origin & trivia (Bulbapedia, on request),
+   links to the big Pokémon sites, forms list, and your own notes.
+   Live data is cached on this device (separate database) so it works offline once seen.
+   ============================================================ */
+const INFO_DB = 'kylesdeck-info';
+function infoDB(){
+  return new Promise((res, rej) => {
+    if(!window.indexedDB) return rej(new Error('no idb'));
+    const r = indexedDB.open(INFO_DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function infoGet(k){
+  try{ const db = await infoDB(); return await new Promise(res => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); }
+  catch(e){ return null; }
+}
+async function infoSet(k, v){
+  try{ const db = await infoDB(); await new Promise(res => { const tx = db.transaction('kv','readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+  catch(e){}
+}
+async function fetchJSONTimeout(url, ms){
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms || 12000);
+  try{ const r = await fetch(url, { signal: ctl.signal }); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }
+  finally{ clearTimeout(t); }
+}
+
+/* ---- links to the big sites ---- */
+function infoBaseName(s){ return (s && (s.baseSpecies || s.name)) || ''; }
+function infoSlug(name){
+  return String(name||'').toLowerCase()
+    .replace(/♀/g,'-f').replace(/♂/g,'-m')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[’'.:]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+}
+function infoWikiTitle(name){ return encodeURIComponent(String(name||'').trim().replace(/ /g,'_')); }
+function speciesLinks(s){
+  const base = infoBaseName(s);
+  const slug = infoSlug(base);
+  const wiki = infoWikiTitle(base);
+  const dex = (s && typeof s.dex === 'number') ? s.dex : null;
+  const bulba = `https://bulbapedia.bulbagarden.net/wiki/${wiki}_(Pok%C3%A9mon)`;
+  const serebii = dex ? (dex <= 809 ? `https://www.serebii.net/pokedex-sm/${String(dex).padStart(3,'0')}.shtml` : `https://www.serebii.net/pokedex-sv/${slug}/`) : null;
+  const q = encodeURIComponent(base);
+  const groups = [
+    { title:'Pokédex & facts', items:[
+      { label:'Bulbapedia', url:bulba + (s && s.variant ? '#Forms' : ''), note: s && s.variant ? 'see the Forms section' : '' },
+      { label:'Pokémon.com Pokédex', url:`https://www.pokemon.com/us/pokedex/${slug}` },
+      serebii ? { label:'Serebii', url:serebii } : null,
+      { label:'PokémonDB', url:`https://pokemondb.net/pokedex/${slug}` },
+      { label:'Pokémon Wiki (Fandom)', url:`https://pokemon.fandom.com/wiki/${wiki}` },
+    ].filter(Boolean) },
+    { title:'Origin & trivia', items:[
+      { label:'Origin (design inspiration)', url:`${bulba}#Origin` },
+      { label:'Name origin', url:`${bulba}#Name_origin` },
+      { label:'Trivia', url:`${bulba}#Trivia` },
+    ] },
+    { title:'Battle info', items:[
+      { label:'Smogon Dex', url:`https://www.smogon.com/dex/sv/pokemon/${slug}/` },
+    ] },
+    { title:'Trading cards', items:[
+      { label:'Bulbapedia card list', url:`https://bulbapedia.bulbagarden.net/wiki/${wiki}_(TCG)` },
+      { label:'TCGplayer', url:`https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&q=${q}` },
+      { label:'Pokellector', url:`https://www.pokellector.com/search?criteria=${q}` },
+    ] },
+  ];
+  return groups;
+}
+
+/* ---- which PokéAPI "variety" matches one of our forms ---- */
+function pickVariety(s, varieties){
+  const def = varieties.find(v => v.is_default) || varieties[0];
+  if(!s || !s.variant) return { v:def, exact:true };
+  const nm = s.name.toLowerCase();
+  const want = new Set();
+  if(nm.startsWith('alolan ')) want.add('alola');
+  if(nm.startsWith('galarian ')) want.add('galar');
+  if(nm.startsWith('hisuian ')) want.add('hisui');
+  if(nm.startsWith('paldean ')) want.add('paldea');
+  if(nm.startsWith('mega ')){ want.add('mega'); if(/ x$/.test(nm)) want.add('x'); if(/ y$/.test(nm)) want.add('y'); }
+  if(nm.startsWith('gigantamax ')) want.add('gmax');
+  if(nm.startsWith('primal ')) want.add('primal');
+  const paren = nm.match(/\((.*?)\)/);
+  if(paren) paren[1].replace(/%/g,'').split(/[^a-z0-9]+/).filter(t => t.length >= 3 && !['form','forme','mode','style','pattern','type','breed','cloak'].includes(t)).forEach(t => want.add(t));
+  if(!want.size) return { v:def, exact:false };
+  let best = null, bestScore = 0;
+  varieties.forEach(v => {
+    const parts = v.pokemon.name.split('-');
+    const score = [...want].filter(t => parts.includes(t)).length;
+    if(score > bestScore || (score === bestScore && score > 0 && best && v.pokemon.name.length < best.pokemon.name.length)){ best = v; bestScore = score; }
+  });
+  return best && bestScore >= Math.min(2, want.size) ? { v:best, exact:true } : (best ? { v:best, exact:false } : { v:def, exact:false });
+}
+const INFO_VERSION_PREF = ['scarlet','violet','legends-arceus','sword','shield','brilliant-diamond','shining-pearl','ultra-sun','ultra-moon','sun','moon','omega-ruby','alpha-sapphire','x','y','black-2','white-2','black','white','heartgold','soulsilver','diamond','pearl','platinum'];
+function tidyFlavor(t){ return String(t||'').replace(/[\n\f\r\u00ad]+/g,' ').replace(/\s+/g,' ').trim(); }
+async function loadPokeInfo(s){
+  if(!s || typeof s.dex !== 'number') return null;
+  const key = 'api2:' + s.dex + ':' + s.name;
+  const cached = await infoGet(key);
+  if(cached && cached.data) return cached.data;
+  const sp = await fetchJSONTimeout(`https://pokeapi.co/api/v2/pokemon-species/${s.dex}`);
+  const pick = pickVariety(s, sp.varieties || []);
+  const pk = await fetchJSONTimeout(pick.v.pokemon.url || `https://pokeapi.co/api/v2/pokemon/${pick.v.pokemon.name}`);
+  const en = arr => (arr || []).find(x => x.language && x.language.name === 'en');
+  const flavors = []; const seen = new Set();
+  const ents = (sp.flavor_text_entries || []).filter(f => f.language && f.language.name === 'en');
+  const rank = f => { const i = INFO_VERSION_PREF.indexOf(f.version && f.version.name); return i < 0 ? 99 : i; };
+  ents.slice().sort((a,b) => rank(a) - rank(b)).forEach(f => {
+    const t = tidyFlavor(f.flavor_text); if(!t || seen.has(t.toLowerCase()) || flavors.length >= 3) return;
+    seen.add(t.toLowerCase()); flavors.push({ text:t, version:(f.version && f.version.name) || '' });
+  });
+  const g = en(sp.genera);
+  const data = {
+    genus: g ? g.genus : '',
+    color: sp.color && sp.color.name, shape: sp.shape && sp.shape.name, habitat: sp.habitat && sp.habitat.name,
+    eggGroups: (sp.egg_groups || []).map(x => x.name), genderRate: sp.gender_rate, captureRate: sp.capture_rate,
+    happiness: sp.base_happiness, growth: sp.growth_rate && sp.growth_rate.name, hatch: sp.hatch_counter,
+    baby: !!sp.is_baby, legendary: !!sp.is_legendary, mythical: !!sp.is_mythical,
+    generation: sp.generation && sp.generation.name,
+    height: pk.height, weight: pk.weight,
+    abilities: (pk.abilities || []).map(a => ({ name:a.ability.name, hidden:!!a.is_hidden })),
+    stats: (pk.stats || []).map(x => ({ name:x.stat.name, v:x.base_stat })),
+    formUsed: pick.v.pokemon.name, exact: pick.exact, isVariant: !!s.variant,
+    flavors,
+  };
+  await infoSet(key, { t:Date.now(), data });
+  return data;
+}
+function infoTitleCase(t){ return String(t||'').replace(/-/g,' ').replace(/\b\w/g, c => c.toUpperCase()); }
+function renderPokeInfoHTML(d, s){
+  if(!d) return `<p style="font-size:13px;color:var(--ink-soft);">This one has no official Pokédex number, so there is no live data. Use the links below or add your own notes.</p>`;
+  const m = d.height != null ? (d.height/10) : null, kg = d.weight != null ? (d.weight/10) : null;
+  const ftin = m != null ? (() => { const tot = Math.round(m*39.3701); return `${Math.floor(tot/12)}′${String(tot%12).padStart(2,'0')}″`; })() : '';
+  const lb = kg != null ? (kg*2.20462).toFixed(1) : '';
+  const gender = d.genderRate === -1 ? 'Genderless' : (d.genderRate != null ? `${100 - d.genderRate*12.5}% male · ${d.genderRate*12.5}% female` : '');
+  const flags = [d.baby && 'Baby Pokémon', d.legendary && 'Legendary', d.mythical && 'Mythical'].filter(Boolean);
+  const STAT = { hp:'HP', attack:'Atk', defense:'Def', 'special-attack':'SpA', 'special-defense':'SpD', speed:'Spe' };
+  const row = (k, v) => v ? `<div><div style="font-size:11px;color:var(--ink-soft);">${esc(k)}</div><div>${v}</div></div>` : '';
+  const total = (d.stats||[]).reduce((a,x)=>a+x.v,0);
+  return `
+    ${d.genus ? `<div style="font-family:var(--font-display);font-size:15px;margin-bottom:6px;">${esc(d.genus)}${flags.length ? ' · '+flags.map(esc).join(' · ') : ''}</div>` : (flags.length ? `<div style="margin-bottom:6px;">${flags.map(esc).join(' · ')}</div>` : '')}
+    ${s && s.variant ? `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${d.exact ? `Numbers below are for this form (${esc(infoTitleCase(d.formUsed))}).` : `PokéAPI has no separate entry for this exact form, so the numbers below are for ${esc(infoTitleCase(d.formUsed))}.`}</div>` : ''}
+    <div class="infogrid">
+      ${row('Height', m != null ? `${m.toFixed(1)} m (${ftin})` : '')}
+      ${row('Weight', kg != null ? `${kg.toFixed(1)} kg (${lb} lb)` : '')}
+      ${row('Abilities', (d.abilities||[]).map(a => esc(infoTitleCase(a.name)) + (a.hidden ? ' <span style="font-size:11px;color:var(--ink-soft);">(hidden)</span>' : '')).join(', '))}
+      ${row('Egg groups', (d.eggGroups||[]).map(infoTitleCase).map(esc).join(', '))}
+      ${row('Gender', esc(gender))}
+      ${row('Catch rate', d.captureRate != null ? String(d.captureRate) : '')}
+      ${row('Base happiness', d.happiness != null ? String(d.happiness) : '')}
+      ${row('Growth rate', esc(infoTitleCase(d.growth)))}
+      ${row('Hatch cycles', d.hatch != null ? String(d.hatch) : '')}
+      ${row('Colour · shape', [d.color, d.shape].filter(Boolean).map(infoTitleCase).map(esc).join(' · '))}
+      ${row('Habitat', esc(infoTitleCase(d.habitat)))}
+      ${row('Introduced', d.generation ? esc('Generation ' + d.generation.replace('generation-','').toUpperCase()) : '')}
+    </div>
+    ${(d.stats||[]).length ? `<div style="margin-top:12px;"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">Base stats (total ${total})</div>
+      ${d.stats.map(x => `<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:2px 0;"><span style="width:30px;">${esc(STAT[x.name]||x.name)}</span><span style="width:28px;text-align:right;">${x.v}</span><span style="flex:1;background:rgba(0,0,0,.08);border-radius:4px;height:7px;overflow:hidden;"><span style="display:block;height:100%;width:${Math.min(100, x.v/255*100)}%;background:var(--accent, #2a6);"></span></span></div>`).join('')}</div>` : ''}
+    ${(d.flavors||[]).length ? `<div style="margin-top:12px;"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">Pokédex entries</div>
+      ${d.flavors.map(f => `<blockquote style="margin:0 0 8px;padding-left:10px;border-left:3px solid rgba(0,0,0,.15);font-size:13px;">${esc(f.text)}<div style="font-size:11px;color:var(--ink-soft);">— Pokémon ${esc(infoTitleCase(f.version))}</div></blockquote>`).join('')}</div>` : ''}
+    <div style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Data from <a href="https://pokeapi.co" target="_blank" rel="noopener">PokéAPI</a>. Pokémon and Pokédex text © Nintendo / Creatures Inc. / GAME FREAK inc.</div>
+  `;
+}
+async function initSpeciesInfo(){
+  const body = $('#spInfoBody'); if(!body) return;
+  const name = body.dataset.species; const s = speciesByName.get(name); if(!s) return;
+  try{
+    const d = await loadPokeInfo(s);
+    const now = $('#spInfoBody'); if(!now || now.dataset.species !== name) return;
+    now.innerHTML = renderPokeInfoHTML(d, s);
+  } catch(e){
+    const now = $('#spInfoBody'); if(!now || now.dataset.species !== name) return;
+    now.innerHTML = `<p style="font-size:13px;color:var(--ink-soft);">Couldn't load the live Pokédex data right now (you may be offline). The links below still work. <button class="btn sm" data-action="retry-info">Try again</button></p>`;
+  }
+  const notes = $('#spNotes');
+  if(notes) notes.addEventListener('change', () => {
+    const n = notes.dataset.species; const v = notes.value.trim();
+    if(!STATE.settings.speciesNotes) STATE.settings.speciesNotes = {};
+    if(v) STATE.settings.speciesNotes[n] = v; else delete STATE.settings.speciesNotes[n];
+    persist('settings'); toast('Notes saved.');
+  });
+}
+
+/* ---- origin & trivia from Bulbapedia (only when you tap the button) ---- */
+function bulbaHtmlToText(html, maxItems, maxChars){
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('table, .mw-editsection, sup, style, script, .thumb, figure, .toc, h2, h3, h4').forEach(n => n.remove());
+  const out = [];
+  doc.querySelectorAll('p, li').forEach(n => {
+    const t = n.textContent.replace(/\[\d+\]/g,'').replace(/\s+/g,' ').trim();
+    if(t.length > 20) out.push({ li: n.tagName === 'LI', t: t.length > maxChars ? t.slice(0, maxChars).replace(/\s+\S*$/,'') + '…' : t });
+  });
+  return out.slice(0, maxItems);
+}
+async function loadBulbaLore(s){
+  const base = infoBaseName(s);
+  const key = 'bulba2:' + base;
+  const cached = await infoGet(key);
+  if(cached && cached.data) return cached.data;
+  const title = base.replace(/ /g,'_') + '_(Pokémon)';
+  const api = `https://bulbapedia.bulbagarden.net/w/api.php?action=parse&format=json&origin=*&redirects=1&page=${encodeURIComponent(title)}`;
+  const secs = await fetchJSONTimeout(api + '&prop=sections', 15000);
+  const list = (secs.parse && secs.parse.sections) || [];
+  const find = nm => list.find(x => x.line && x.line.replace(/<[^>]+>/g,'').trim().toLowerCase() === nm);
+  const grab = async (sec, maxItems, maxChars) => {
+    if(!sec) return [];
+    const j = await fetchJSONTimeout(api + '&prop=text&section=' + sec.index, 15000);
+    const html = j.parse && j.parse.text && (j.parse.text['*'] || j.parse.text);
+    return html ? bulbaHtmlToText(html, maxItems, maxChars) : [];
+  };
+  const origin = await grab(find('origin'), 4, 600);
+  const trivia = await grab(find('trivia'), 10, 320);
+  const data = { origin, trivia, title };
+  if(origin.length || trivia.length) await infoSet(key, { t:Date.now(), data });
+  return data;
+}
+function renderLoreHTML(d, s){
+  const base = infoBaseName(s);
+  const link = `https://bulbapedia.bulbagarden.net/wiki/${infoWikiTitle(base)}_(Pok%C3%A9mon)`;
+  if(!d || (!d.origin.length && !d.trivia.length)) return `<p style="font-size:13px;color:var(--ink-soft);">Bulbapedia doesn't have an Origin or Trivia section for this one, or the page couldn't be read. <a href="${link}" target="_blank" rel="noopener">Open the Bulbapedia page ↗</a></p>`;
+  const block = (title, items) => items.length ? `<div style="margin-bottom:12px;"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">${title}</div>${items.some(x=>x.li) ? `<ul style="margin:0;padding-left:18px;font-size:13px;">${items.map(x=>`<li style="margin-bottom:4px;">${esc(x.t)}</li>`).join('')}</ul>` : items.map(x=>`<p style="margin:0 0 6px;font-size:13px;">${esc(x.t)}</p>`).join('')}</div>` : '';
+  return `${block('Origin', d.origin)}${block('Trivia', d.trivia)}
+    <div style="font-size:11px;color:var(--ink-soft);">From <a href="${link}" target="_blank" rel="noopener">Bulbapedia</a> (CC BY-NC-SA 2.5), shortened. Read the full page there.${s.variant ? ' This is the page for the main Pokémon; forms are covered in its Forms section.' : ''}</div>`;
+}
+async function loadLoreInto(name){
+  const el = $('#spLoreBody'); const s = speciesByName.get(name); if(!el || !s) return;
+  el.innerHTML = `<p style="font-size:13px;color:var(--ink-soft);">Loading from Bulbapedia…</p>`;
+  try{
+    const d = await loadBulbaLore(s);
+    const now = $('#spLoreBody'); if(now) now.innerHTML = renderLoreHTML(d, s);
+  } catch(e){
+    const now = $('#spLoreBody'); if(now) now.innerHTML = `<p style="font-size:13px;color:var(--ink-soft);">Couldn't reach Bulbapedia from here (offline, or the site blocked the request). Use the Origin / Trivia links above instead. <button class="btn sm" data-action="load-lore" data-species="${esc(name)}">Try again</button></p>`;
+  }
+}
+function speciesInfoPanelsHTML(s){
+  const name = s.name;
+  const base = infoBaseName(s);
+  const forms = SPECIES.filter(x => infoBaseName(x) === base).sort((a,b) => (a.variant?1:0) - (b.variant?1:0) || a.name.localeCompare(b.name));
+  const note = (STATE.settings.speciesNotes && STATE.settings.speciesNotes[name]) || '';
+  const links = speciesLinks(s);
+  return `
+    <details class="panel" style="margin-bottom:18px;" open>
+      <summary class="section-title" style="margin-top:0;cursor:pointer;">Pokédex info</summary>
+      <div id="spInfoBody" data-species="${esc(name)}" style="margin-top:8px;font-size:13px;color:var(--ink-soft);">${typeof s.dex === 'number' ? 'Loading Pokédex data…' : renderPokeInfoHTML(null, s)}</div>
+    </details>
+    <details class="panel" style="margin-bottom:18px;">
+      <summary class="section-title" style="margin-top:0;cursor:pointer;">Origin &amp; trivia</summary>
+      <div id="spLoreBody" style="margin-top:8px;"><button class="btn sm primary" data-action="load-lore" data-species="${esc(name)}">Load origin &amp; trivia from Bulbapedia</button>
+        <span style="font-size:12px;color:var(--ink-soft);margin-left:6px;">or use the Origin / Trivia links below</span></div>
+    </details>
+    <details class="panel" style="margin-bottom:18px;" open>
+      <summary class="section-title" style="margin-top:0;cursor:pointer;">Learn more — links</summary>
+      <div style="margin-top:8px;">${links.map(g => `<div style="margin-bottom:10px;"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">${esc(g.title)}</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${g.items.map(i => `<a class="chip" href="${esc(i.url)}" target="_blank" rel="noopener" ${i.note ? `title="${esc(i.note)}"` : ''}>${esc(i.label)} ↗</a>`).join('')}</div></div>`).join('')}
+      <div style="font-size:11px;color:var(--ink-soft);">Opens in a new tab. A few pages for new or unusual Pokémon may not exist on every site yet.</div></div>
+    </details>
+    ${forms.length > 1 ? `
+    <details class="panel" style="margin-bottom:18px;" open>
+      <summary class="section-title" style="margin-top:0;cursor:pointer;">Variants &amp; forms (${forms.length})</summary>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">${forms.map(f => `<span class="chip ${f.name===name?'active':''}" ${f.name!==name?`data-nav-species="${esc(f.name)}"`:''}>${esc(f.name)}${isOwned(f.name)?' ✓':''}</span>`).join('')}</div>
+    </details>` : ''}
+    <details class="panel" style="margin-bottom:18px;" ${note ? 'open' : ''}>
+      <summary class="section-title" style="margin-top:0;cursor:pointer;">My notes</summary>
+      <textarea id="spNotes" data-species="${esc(name)}" rows="4" style="width:100%;margin-top:8px;" placeholder="Your own fun facts, where you found it, what to look for…">${esc(note)}</textarea>
+    </details>
+  `;
+}
+
 function renderSpeciesDetail(args){
   const name = decodeURIComponent(args[0]||'');
   const s = speciesByName.get(name);
@@ -2874,6 +3231,8 @@ function renderSpeciesDetail(args){
         ${famMembers.map(m => `<span class="chip ${m.name===s.name?'active':''}" ${m.name!==s.name?`data-nav-species="${esc(m.name)}"`:''}>${esc(m.name)}${isOwned(m.name)?' ✓':''}</span>`).join('')}
       </div>
     </div>` : ''}
+
+    ${speciesInfoPanelsHTML(s)}
 
     <div class="section-title" style="margin-top:0;">Your cards ${cards.length?`(${cards.length})`:''}</div>
     ${cards.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>Not in your collection</h3><p>Import your Collectr export to add ${esc(s.name)}.</p></div>` :
@@ -4080,14 +4439,22 @@ function renderImport(){
   }
 
   const { items } = importState.preview;
-  const counts = { new:0, update:0, duplicate:0, review:0, held:0, old:0 };
+  const counts = { new:0, update:0, duplicate:0, review:0, held:0, old:0, skipped:0 };
   items.forEach(i => counts[i.status]++);
   const reviewItems = items.filter(i=>i.status==='review');
+  const detectedNP = reviewItems.filter(i=>i.nonPokemonGuess).length;
+  const tickedNP = reviewItems.filter(i=>i.skipNP && !i.manualSpecies).length;
+  const autoSkipped = items.filter(i=>i.status==='skipped');
+  const skipNames = new Map(); autoSkipped.forEach(i => skipNames.set(norm(i.row.productName), i.row.productName));
   const visibleItems = items.slice(0, 400); // cap render for very large imports
 
   return `
     <div class="pagehead"><div><h1>Import preview</h1><div class="sub">${esc(importState.filename)} · portfolio "${esc(importState.portfolio)}"</div></div>
-      <button class="btn ghost" id="cancelImport">Start over</button>
+      <button class="btn ghost js-cancel-import">Start over</button>
+    </div>
+    <div class="card" style="padding:12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <div style="font-size:13px;"><strong>${fmtInt(counts.new)}</strong> new · <strong>${fmtInt(counts.update)}</strong> updated${counts.old ? ` · <strong>${fmtInt(counts.old)}</strong> older` : ''}${(counts.skipped+tickedNP) ? ` · <strong>${fmtInt(counts.skipped+tickedNP)}</strong> skipped (not Pokémon)` : ''}${counts.review-tickedNP>0 ? ` · <strong>${fmtInt(counts.review-tickedNP)}</strong> still need review` : ''}</div>
+      <button class="btn accent js-commit-import">Confirm upload</button>
     </div>
     <div class="import-summary">
       <div class="cell"><div class="n">${importState.preview.totalRows}</div><div class="l">Rows detected</div></div>
@@ -4097,7 +4464,11 @@ function renderImport(){
       <div class="cell"><div class="n">${counts.review}</div><div class="l">Needs review</div></div>
       ${counts.old ? `<div class="cell"><div class="n">${counts.old}</div><div class="l">Older cards added (not new)</div></div>` : ''}
       ${counts.held ? `<div class="cell"><div class="n">${counts.held}</div><div class="l">Held back — removed in the app</div></div>` : ''}
+      ${counts.skipped ? `<div class="cell"><div class="n">${counts.skipped}</div><div class="l">Auto-skipped (not Pokémon)</div></div>` : ''}
     </div>
+    ${counts.skipped ? `<details class="card" style="padding:12px;margin-bottom:12px;font-size:13px;"><summary style="cursor:pointer;"><strong>${fmtInt(counts.skipped)} card${counts.skipped===1?'':'s'} auto-skipped</strong> because you marked ${skipNames.size===1?'that product':'those products'} as not Pokémon on an earlier import</summary>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${[...skipNames.entries()].map(([k,n]) => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><span>${esc(n)}</span><button class="btn sm" data-action="unskip-product" data-key="${esc(k)}">Stop skipping</button></div>`).join('')}</div>
+    </details>` : ''}
     ${counts.held ? `<div class="card" style="padding:12px;margin-bottom:12px;font-size:13px;border:1px solid var(--accent, #c44);">
       <strong>${fmtInt(counts.held)} card${counts.held===1?'':'s'} in this file ${counts.held===1?'is':'are'} being skipped</strong> because ${counts.held===1?'it was':'they were'} deleted in the app earlier (for example with \u201cDelete this import\u2019s cards\u201d). Collectr still has ${counts.held===1?'it':'them'}, so the app holds ${counts.held===1?'it':'them'} back instead of re-adding.
       <div style="margin-top:8px;"><button class="btn accent" data-action="import-bring-back-held">Bring back ${fmtInt(counts.held)} card${counts.held===1?'':'s'} and re-check</button></div>
@@ -4109,14 +4480,22 @@ function renderImport(){
 
     ${reviewItems.length ? `
     <div class="section-title" style="margin-top:6px;">Needs review — confirm the species</div>
+    <div class="card" style="padding:12px;margin-bottom:10px;font-size:13px;">
+      <strong>${fmtInt(detectedNP)} of ${fmtInt(reviewItems.length)}</strong> look like they are not Pokémon (energy, sealed product, accessories, trainer cards, or no Pokémon name in them) and are ticked to skip. Anything you skip is remembered and skipped automatically on every future import.
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn sm primary" data-action="import-np-all" data-on="1">Select all detected non-Pokémon</button>
+        <button class="btn sm" data-action="import-np-all" data-on="0">Clear all</button>
+      </div>
+    </div>
     <div class="tablewrap" style="margin-bottom:20px;">
-      <table class="datatable"><thead><tr><th>Card</th><th>Set</th><th>Species</th><th>Skip</th></tr></thead><tbody>
+      <table class="datatable"><thead><tr><th>Card</th><th>Set</th><th>Species</th><th>Not a Pokémon — skip</th><th>Keep unlinked</th></tr></thead><tbody>
         ${reviewItems.map((it,i) => `
           <tr class="needsreview-row" data-review-idx="${items.indexOf(it)}">
-            <td>${esc(it.row.productName)}</td>
+            <td>${esc(it.row.productName)}${it.nonPokemonGuess ? ' <span class="badge held">detected</span>' : (it.guessHint ? ` <span style="font-size:11px;color:var(--ink-soft);">looks like “${esc(it.guessHint)}”?</span>` : '')}</td>
             <td>${esc(it.row.set)} #${esc(it.row.cardNumber)}</td>
             <td>${speciesPickerHTML({ id:'rev-'+items.indexOf(it), hiddenClass:'review-species-select', current:'', placeholder:'Type to search species…', extraAttrs:`data-review-idx="${items.indexOf(it)}"` })}</td>
-            <td><label style="font-size:12px;"><input type="checkbox" class="review-skip" data-review-idx="${items.indexOf(it)}"> keep unlinked</label></td>
+            <td><label style="font-size:12px;"><input type="checkbox" class="review-nonpoke" data-review-idx="${items.indexOf(it)}" ${it.skipNP ? 'checked' : ''}> skip</label></td>
+            <td><label style="font-size:12px;"><input type="checkbox" class="review-skip" data-review-idx="${items.indexOf(it)}" ${it.acceptUnlinked ? 'checked' : ''}> keep unlinked</label></td>
           </tr>`).join('')}
       </tbody></table>
     </div>` : ''}
@@ -4137,13 +4516,13 @@ function renderImport(){
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
-      <button class="btn ghost" id="cancelImport">Cancel</button>
-      <button class="btn accent" id="commitImportBtn">Commit import</button>
+      <button class="btn ghost js-cancel-import">Cancel</button>
+      <button class="btn accent js-commit-import">Confirm upload</button>
     </div>
   `;
 }
 function statusLabel(s){
-  return { new:'New', update:'Update', duplicate:'Unchanged', review:'Needs review', held:'Held back', old:'Added (older)' }[s] || s;
+  return { new:'New', update:'Update', duplicate:'Unchanged', review:'Needs review', held:'Held back', old:'Added (older)', skipped:'Skipped' }[s] || s;
 }
 
 function handleImportFile(file){
@@ -4186,16 +4565,9 @@ function buildAndShowPreview(){
 }
 
 function doCommitImport(){
+  syncReviewDOM();
   const items = importState.preview.items;
-  $$('.review-species-select').forEach(sel => {
-    const idx = parseInt(sel.dataset.reviewIdx,10);
-    if(sel.value) items[idx].manualSpecies = sel.value;
-  });
-  $$('.review-skip').forEach(cb => {
-    const idx = parseInt(cb.dataset.reviewIdx,10);
-    if(cb.checked) items[idx].acceptUnlinked = true;
-  });
-  const stillUnresolved = items.filter(i => i.status==='review' && !i.manualSpecies && !i.acceptUnlinked);
+  const stillUnresolved = items.filter(i => i.status==='review' && !i.manualSpecies && !i.acceptUnlinked && !i.skipNP);
   if(stillUnresolved.length){
     confirmAction(`${stillUnresolved.length} card(s) still need a species chosen or "keep unlinked" checked. Skip them for now and import the rest?`, () => {
       finishCommit();
@@ -4440,6 +4812,7 @@ function renderImportDetail(ids){
       const parts = [];
       if(b0.unchanged) parts.push(`${fmtInt(b0.unchanged)} card${b0.unchanged===1?' was':'s were'} already in your collection with nothing different`);
       if(b0.heldBack) parts.push(`${fmtInt(b0.heldBack)} ${b0.heldBack===1?'was':'were'} held back (removed in the app, still in Collectr)`);
+      if(b0.ignored) parts.push(`${fmtInt(b0.ignored)} ${b0.ignored===1?'was':'were'} skipped as not Pokémon`);
       if(b0.reviewSkipped) parts.push(`${fmtInt(b0.reviewSkipped)} ${b0.reviewSkipped===1?'was':'were'} skipped because no species was chosen`);
       why = `<p style="color:var(--ink-soft);font-size:14px;max-width:520px;margin:6px auto 0;">This import didn\u2019t add or change anything${b0.totalRows ? ' (the file had ' + fmtInt(b0.totalRows) + ' rows' + (b0.inScope!=null && b0.inScope!==b0.totalRows ? ', ' + fmtInt(b0.inScope) + ' in the chosen portfolio' : '') + ')' : ''}. ${parts.length ? esc(parts.join('; ')) + '.' : ''} That usually means this file (or one with the same cards) was already imported. If you expected new cards, check that the right portfolio was chosen and that the cards\u2019 Date Added is on or after your cutoff.</p>`;
     } else if(!allDeleted && items.length && importDetailFilter !== 'all'){
@@ -4860,6 +5233,12 @@ function renderSettings(){
       <div class="section-title" style="margin-top:0;">Deleted Pokémon</div>
       <p style="color:var(--ink-soft);font-size:13px;">Restoring one puts it back in the Pokédex and binder. Cards you moved off it stay where they are.</p>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${ids.map(id => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><span>${esc(ORIGINAL_NAMES.get(id))}</span><button class="btn sm" data-action="restore-species" data-id="${esc(id)}">Restore</button></div>`).join('')}</div>
+    </div>` : ''; })()}
+    ${(() => { const m = STATE.settings.skipProducts || {}; const ks = Object.keys(m); return ks.length ? `
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="section-title" style="margin-top:0;">Always-skipped products (not Pokémon)</div>
+      <p style="color:var(--ink-soft);font-size:13px;">Imports skip these automatically. Stop skipping one and it is checked again next import.</p>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${ks.sort((a,b)=>m[a].localeCompare(m[b])).map(k => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><span>${esc(m[k])}</span><button class="btn sm" data-action="unskip-product" data-key="${esc(k)}">Stop skipping</button></div>`).join('')}</div>
     </div>` : ''; })()}
     <div class="panel" style="margin-bottom:16px;">
       <div class="section-title" style="margin-top:0;">Restore backup</div>
