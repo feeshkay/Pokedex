@@ -420,6 +420,63 @@ details.panel[open] > summary::after{content:' ▴';}
 .species-picker .gs-dropdown{max-height:240px;}
 .species-picker .gs-row{font-size:13px;padding:7px 10px;}
 
+
+/* ---------- Organize sections ---------- */
+.tx-hint{font-size:12.5px;color:var(--ink-soft);margin:6px 0 10px;line-height:1.45;}
+.tx-warn{color:var(--crimson);}
+.tx-check{display:flex;gap:8px;align-items:center;font-size:13.5px;margin:8px 0;cursor:pointer;}
+.tx-check input{width:auto;margin:0;}
+.tx-indent{margin:4px 0 10px 26px;}
+.tx-banner{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#f4e7cd;color:#6d5217;border:1px solid var(--brass-soft);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;margin:6px 0 10px;}
+.tx-tree{margin-top:6px;}
+.tx-row{display:flex;align-items:center;gap:4px 6px;padding:5px 4px;border-radius:6px;flex-wrap:wrap;}
+.tx-row:hover{background:var(--paper-sunken);}
+.tx-name{flex:1 1 150px;min-width:0;font-size:13px;overflow-wrap:anywhere;}
+.tx-name.g{font-family:var(--font-display);font-weight:700;font-size:15px;}
+.tx-name.c{font-weight:600;}
+.tx-name.s{color:var(--ink-soft);font-size:12.5px;}
+.tx-count{font-size:11px;color:var(--ink-soft);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.tx-actions{display:flex;flex-shrink:0;}
+.tx-actions .iconbtn{padding:5px;}
+.tx-actions .iconbtn svg{width:16px;height:16px;}
+.tx-actions .iconbtn[disabled]{opacity:.22;cursor:default;}
+.tx-chev,.tx-chev-sp{width:24px;height:24px;flex-shrink:0;}
+.tx-chev svg{width:14px;height:14px;transition:transform .12s;}
+.tx-chev.open svg{transform:rotate(90deg);}
+.tx-kids{margin-left:12px;padding-left:8px;border-left:2px solid var(--line);}
+.tx-add{margin:4px 0 6px 28px;}
+.tx-node{margin-top:2px;}
+
+/* ---------- Species picker ---------- */
+.spk-filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.spk-filters input{grid-column:1 / -1;}
+.spk-filters select{min-width:0;}
+.spk-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);margin-bottom:6px;}
+.spk-list{max-height:34vh;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);}
+.spk-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer;width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0;font-family:inherit;color:inherit;}
+.spk-row:last-child{border-bottom:0;}
+.spk-row:hover{background:var(--paper-sunken);}
+.spk-row input{width:auto;margin:0;flex-shrink:0;}
+.spk-nm{font-weight:600;flex-shrink:0;}
+.spk-meta{font-size:11px;color:var(--ink-soft);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cb-cardrow.on{background:rgba(79,138,91,.16);}
+.spk-opts{margin-top:8px;}
+
+/* ---------- More binders ---------- */
+.pocket .cb-ctl{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;flex-wrap:wrap;gap:1px;justify-content:center;padding:3px 2px;background:rgba(245,243,234,.94);border-top:1px solid var(--line);}
+.pocket.label .cb-ctl{background:rgba(245,243,234,.94);}
+.cb-b{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;padding:0;color:var(--ink);}
+.cb-b svg{width:14px;height:14px;}
+.cb-b.on{background:var(--brass);color:#fff;}
+.cb-b[disabled]{opacity:.25;cursor:default;}
+.cb-b:hover:not([disabled]){background:var(--paper-sunken);}
+.cb-blank{align-items:center;justify-content:center;border:1px dashed var(--line-strong);}
+.cb-blank-t{font-size:11px;color:var(--ink-soft);letter-spacing:.06em;text-transform:uppercase;}
+.cb-dense .pocket .nm{font-size:10px;}
+.cb-dense .pocket .dexno{font-size:8px;}
+.cb-dense .cb-b{width:20px;height:20px;}
+.cb-dense .cb-b svg{width:12px;height:12px;}
+.cb-dense .pocket.label .nm{font-size:11.5px;}
 </style>
 </head>
 <body>
@@ -572,6 +629,17 @@ function computeBinderLayout(species){
       }
     }
   }
+  // Safety net: a Pokémon whose group/category/subcategory isn't in the lists above would otherwise drop
+  // out of the binder without a trace. Park any such Pokémon together at the very end instead.
+  const placedNames = new Set(rows.filter(r => r.type==='POKÉMON').map(r => r.display));
+  const lost = species.filter(sp => !placedNames.has(sp.name));
+  if(lost.length){
+    forceNewPage();
+    place({type:'GROUP LABEL',labelLevel:'GROUP',display:'Unsorted',dex:null,group:'Unsorted',category:'Needs a section',subcategory:'Needs a section',evoFamily:null,evoOrder:null,key:'GROUP::Unsorted',taxBreak:'NEW GROUP'});
+    place({type:'CATEGORY LABEL',labelLevel:'CATEGORY',display:'Needs a section',dex:null,group:'Unsorted',category:'Needs a section',subcategory:'Needs a section',evoFamily:null,evoOrder:null,key:'CATEGORY::Needs a section',taxBreak:null});
+    place({type:'SUBCATEGORY LABEL',labelLevel:'SUBCATEGORY',display:'Needs a section',dex:null,group:'Unsorted',category:'Needs a section',subcategory:'Needs a section',evoFamily:null,evoOrder:null,key:'SUBCATEGORY::Needs a section',taxBreak:null});
+    sortByFamilyThenEvo(lost).forEach(sp => place({type:'POKÉMON',labelLevel:null,display:sp.name,dex:sp.dex,group:'Unsorted',category:'Needs a section',subcategory:'Needs a section',evoFamily:sp.evoFamily,evoOrder:sp.evoOrder}));
+  }
   return rows;
 }
 
@@ -636,6 +704,11 @@ const ICONS = {
   tools:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3z"/><path d="M14.7 6.3l2.5-2.5a4 4 0 0 0-3.800 1.200"/></svg>',
   dupes:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="12" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4"/></svg>',
   more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2.1"/><circle cx="12" cy="12" r="2.1"/><circle cx="19" cy="12" r="2.1"/></svg>',
+  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 15 12 9 18 15"/></svg>',
+  down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 6 15 12 9 18"/></svg>',
+  move:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 8h13"/><path d="M13 4l4 4-4 4"/><path d="M20 16H7"/><path d="M11 12l-4 4 4 4"/></svg>',
+  pagebreak:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3v9"/><path d="M8 8l4 4 4-4"/><path d="M4 19h16"/></svg>',
 };
 
 /* ---------------- static data lookups (built once) ---------------- */
@@ -689,6 +762,7 @@ const LS_KEYS = {
   customSpecies: 'pkmn.customSpecies',
   collectrSnapshot: 'pkmn.collectrSnapshot',
   removedInApp: 'pkmn.removedInApp',
+  binders: 'pkmn.binders',
 };
 
 /* ---------------- storage ----------------
@@ -808,9 +882,11 @@ let STATE = {
   familyOverrides: loadJSON(LS_KEYS.familyOverrides, {}), // species name -> {evoFamily,evoOrder} - your custom evolution-family edits
   customSpecies: loadJSON(LS_KEYS.customSpecies, []), // full species records you've added by hand (not in the built-in dex)
   collectrSnapshot: loadJSON(LS_KEYS.collectrSnapshot, null), // {date,filename,portfolio,ids[]} — every card id in your most recent Collectr import
+  binders: loadJSON(LS_KEYS.binders, []),   // extra binders you've set up by hand
   removedInApp: loadJSON(LS_KEYS.removedInApp, {}), // cardId -> {removedAt, card} — cards you removed here that Collectr may still have
 };
 if(!STATE.settings.cloudSync) STATE.settings.cloudSync = { enabled:false, syncCode:'', config:null };
+if(!Array.isArray(STATE.binders)) STATE.binders = [];
 // Load your saved category list (if you've customized it) over the built-in
 // one, or seed it from the built-ins the first time. Must happen before
 // rebuildBinder() below, since the binder layout reads these tables.
@@ -980,6 +1056,9 @@ function migrateSpeciesKey(from, to){
   Object.keys(STATE.overrides||{}).forEach(k => { if(STATE.overrides[k] === from) STATE.overrides[k] = to; });
   Object.keys(STATE.removedInApp||{}).forEach(id => { const r = STATE.removedInApp[id]; if(r && r.card && r.card.species === from) r.card.species = to; });
   STATE.history.forEach(b => { if(Array.isArray(b.newSpecies)) b.newSpecies = b.newSpecies.map(n => n === from ? to : n); });
+  let cbTouched = false;
+  (STATE.binders||[]).forEach(b => b.items.forEach(it => { if(it.species === from){ it.species = to; cbTouched = true; } }));
+  if(cbTouched) persist('binders');
 }
 function renameSpecies(oldName, rawNew){
   const sp = speciesByName.get(oldName); if(!sp) return null;
@@ -1089,6 +1168,7 @@ function persist(part){
   else if(part==='customSpecies') saveJSON(LS_KEYS.customSpecies, STATE.customSpecies);
   else if(part==='collectrSnapshot') saveJSON(LS_KEYS.collectrSnapshot, STATE.collectrSnapshot);
   else if(part==='removedInApp') saveJSON(LS_KEYS.removedInApp, STATE.removedInApp);
+  else if(part==='binders') saveJSON(LS_KEYS.binders, STATE.binders);
   // Push to the cloud (if connected) whenever real data changes. Settings
   // writes are excluded so that pushToCloud() recording its own
   // lastPushedAt timestamp (a settings write) can't trigger itself again.
@@ -1855,9 +1935,11 @@ const ROUTES = [
   { id:'collection', label:'Collection', icon:'collection' },
   { id:'pokedex', label:'Pokédex', icon:'pokedex' },
   { id:'taxonomy', label:'Taxonomy', icon:'taxonomy' },
+  { id:'sections', label:'Organize', icon:'taxonomy' },
   { id:'evolutions', label:'Evolutions', icon:'evolutions' },
   { id:'binder', label:'Binder', icon:'binder' },
   { id:'extras', label:'Extras Binder', icon:'extras' },
+  { id:'binders', label:'All Binders', icon:'binder' },
   { id:'tools', label:'Tools', icon:'tools' },
   { id:'import', label:'Import', icon:'import' },
   { id:'history', label:'Import History', icon:'history' },
@@ -1948,6 +2030,8 @@ function render(){
     evolutions: renderEvolutions,
     binder: renderBinder,
     extras: renderExtras,
+    binders: renderBindersRoute,
+    sections: renderSections,
     duplicates: renderDuplicates,
     tools: renderTools,
     picks: renderPicksTool,
@@ -1975,6 +2059,8 @@ window.addEventListener('hashchange', render);
 
 document.addEventListener('click', (e) => {
   if(!e.target.closest('.gs-wrap')) closeAllSearchDropdowns();
+  const taxEl = e.target.closest('[data-tax]'); if(taxEl){ handleTaxAction(taxEl); return; }
+  const cbEl = e.target.closest('[data-cb]'); if(cbEl){ handleCbAction(cbEl); return; }
 
   const navBtn = e.target.closest('[data-nav]');
   if(navBtn){ location.hash = '#/' + navBtn.dataset.nav; return; }
@@ -2229,6 +2315,15 @@ function wireScreenEvents(routeId){
     $$('.js-ex-go').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); extrasPage = parseInt(b.closest('.pager').querySelector('input').value,10)||1; render(); }));
     runBinderScroll();
   }
+  else if(routeId === 'binders'){
+    const bid = currentRoute().args[0];
+    if(bid){
+      $$('.js-cb-prev').forEach(x => x.addEventListener('click', () => { flagBinderScroll(x); location.hash = '#/binders/' + bid + '/' + (cbPage-1); }));
+      $$('.js-cb-next').forEach(x => x.addEventListener('click', () => { flagBinderScroll(x); location.hash = '#/binders/' + bid + '/' + (cbPage+1); }));
+      $$('.js-cb-go').forEach(x => x.addEventListener('click', () => { flagBinderScroll(x); const v = parseInt(x.closest('.pager').querySelector('input').value,10)||1; location.hash = '#/binders/' + bid + '/' + v; }));
+      runBinderScroll();
+    }
+  }
   else if(routeId === 'import'){
     const dz = $('#dropzone');
     const fileInput = $('#fileInput');
@@ -2263,7 +2358,7 @@ function wireScreenEvents(routeId){
         GROUP_ORDER = JSON.parse(JSON.stringify(DEFAULT_GROUP_ORDER));
         CATEGORY_ORDER = JSON.parse(JSON.stringify(DEFAULT_CATEGORY_ORDER));
         SUBCATEGORY_ORDER = JSON.parse(JSON.stringify(DEFAULT_SUBCATEGORY_ORDER));
-        STATE = { collection:[], picks:{}, history:[], overrides:{}, settings:{ cloudSync:{enabled:false,syncCode:'',config:null} }, labelOverrides:{}, mergedLabels:{}, categoryOverrides:{}, manualOwned:{}, taxonomy:{ version:TAXONOMY_SCHEMA_VERSION, groups:GROUP_ORDER, categories:CATEGORY_ORDER, subcategories:SUBCATEGORY_ORDER }, familyOverrides:{}, customSpecies:[], collectrSnapshot:null, removedInApp:{} };
+        STATE = { collection:[], picks:{}, history:[], overrides:{}, settings:{ cloudSync:{enabled:false,syncCode:'',config:null} }, labelOverrides:{}, mergedLabels:{}, categoryOverrides:{}, manualOwned:{}, taxonomy:{ version:TAXONOMY_SCHEMA_VERSION, groups:GROUP_ORDER, categories:CATEGORY_ORDER, subcategories:SUBCATEGORY_ORDER }, familyOverrides:{}, customSpecies:[], collectrSnapshot:null, removedInApp:{}, binders:[] };
         Object.keys(LS_KEYS).forEach(k => persist(k));
         rebuildBinder();
         toast('All data erased.');
@@ -3461,19 +3556,6 @@ function promptTextModal(title, label, initialValue, onSave){
   $('#taxPromptSaveBtn').addEventListener('click', submit);
   input.addEventListener('keydown', e => { if(e.key==='Enter') submit(); });
 }
-function addCategoryToGroup(group){
-  promptTextModal('Add category', `New category under "${group}"`, '', name => {
-    if((CATEGORY_ORDER[group]||[]).some(c=>c.toLowerCase()===name.toLowerCase())){ toast('That category already exists in this group.'); return; }
-    if(!CATEGORY_ORDER[group]) CATEGORY_ORDER[group] = [];
-    CATEGORY_ORDER[group].push(name);
-    // every category needs at least one subcategory so the recategorize
-    // menu always has something to select — using the category's own name
-    // means "no real subdivision" without a blank/broken dropdown.
-    if(!SUBCATEGORY_ORDER[name] || !SUBCATEGORY_ORDER[name].length) SUBCATEGORY_ORDER[name] = [name];
-    saveTaxonomy();
-    closeModal(); toast(`"${name}" added.`); render();
-  });
-}
 /* Core rename logic, usable both from the Settings taxonomy manager (via
    renameCategory below) and directly from the binder's "Edit label" flow on a
    CATEGORY pocket, so both places share one source of truth and can never
@@ -3503,27 +3585,6 @@ function renameCategory(group, oldName){
     if(doRenameCategory(group, oldName, newName)){ closeModal(); toast('Category renamed.'); render(); }
   });
 }
-function deleteCategory(group, name){
-  const inUse = SPECIES.some(s => s.category === name);
-  if(inUse){ toast('Recategorize the Pokémon using this category before deleting it.'); return; }
-  confirmAction(`Delete the category "${name}" and its subcategories? This can't be undone.`, () => {
-    CATEGORY_ORDER[group] = (CATEGORY_ORDER[group]||[]).filter(c=>c!==name);
-    delete SUBCATEGORY_ORDER[name];
-    saveTaxonomy();
-    rebuildBinder();
-    toast('Category deleted.'); render();
-  });
-}
-function addSubcategory(category){
-  promptTextModal('Add subcategory', `New subcategory under "${category}"`, '', name => {
-    if(!SUBCATEGORY_ORDER[category]) SUBCATEGORY_ORDER[category] = [];
-    if(SUBCATEGORY_ORDER[category].some(s=>s.toLowerCase()===name.toLowerCase())){ toast('That subcategory already exists.'); return; }
-    SUBCATEGORY_ORDER[category].push(name);
-    SUBCATEGORY_ORDER[category].sort((a,b)=>a.localeCompare(b));
-    saveTaxonomy();
-    closeModal(); toast(`"${name}" added.`); render();
-  });
-}
 function doRenameSubcategory(category, oldName, newName){
   if(newName === oldName) return true;
   if((SUBCATEGORY_ORDER[category]||[]).some(s=>s.toLowerCase()===newName.toLowerCase())){ toast('That name is already used in this category.'); return false; }
@@ -3548,49 +3609,791 @@ function renameSubcategory(category, oldName){
     if(doRenameSubcategory(category, oldName, newName)){ closeModal(); toast('Subcategory renamed.'); render(); }
   });
 }
-function deleteSubcategory(category, name){
-  const inUse = SPECIES.some(s => s.category===category && s.subcategory === name);
-  if(inUse){ toast('Recategorize the Pokémon using this subcategory before deleting it.'); return; }
-  confirmAction(`Delete the subcategory "${name}"? This can't be undone.`, () => {
-    SUBCATEGORY_ORDER[category] = (SUBCATEGORY_ORDER[category]||[]).filter(s=>s!==name);
-    saveTaxonomy();
-    rebuildBinder();
-    toast('Subcategory deleted.'); render();
+/* ---- Sections: add / move / merge / reorder / delete — groups, categories and subcategories ----
+   A "section" is any level of the tree: Group > Category > Subcategory. Every Pokémon sits in exactly
+   one subcategory, so each of these operations works by re-filing the Pokémon inside (saved in
+   STATE.categoryOverrides, same as a manual recategorize) and then updating the lists that decide the
+   binder's order (GROUP_ORDER / CATEGORY_ORDER / SUBCATEGORY_ORDER). The binder reflows afterwards. */
+function insertSorted(arr, name){
+  // keep alphabetical order when the list already is alphabetical; otherwise respect a hand-made order
+  const sorted = arr.every((x,i) => i===0 || arr[i-1].localeCompare(x) <= 0);
+  if(!sorted){ arr.push(name); return; }
+  const i = arr.findIndex(x => x.localeCompare(name) > 0);
+  if(i === -1) arr.push(name); else arr.splice(i, 0, name);
+}
+function subsOf(cat){ return SUBCATEGORY_ORDER[cat] || [cat]; }
+function groupOfCategory(cat){ return GROUP_ORDER.find(g => (CATEGORY_ORDER[g]||[]).includes(cat)) || ''; }
+function speciesInSection(level, g, c, s){
+  if(level === 'group') return SPECIES.filter(x => x.group === g);
+  if(level === 'cat') return SPECIES.filter(x => x.category === c);
+  return SPECIES.filter(x => x.category === c && x.subcategory === s);
+}
+function taxPathValid(sp){
+  return GROUP_ORDER.includes(sp.group) && (CATEGORY_ORDER[sp.group]||[]).includes(sp.category) && subsOf(sp.category).includes(sp.subcategory);
+}
+function placeSpecies(list, g, c, s){
+  list.forEach(sp => {
+    sp.group = g; sp.category = c; sp.subcategory = s;
+    STATE.categoryOverrides[sp.name] = { group:g, category:c, subcategory:s };
+  });
+  if(list.length) persist('categoryOverrides');
+}
+function ensureTaxPath(g, c, s){
+  if(!GROUP_ORDER.includes(g)) insertSorted(GROUP_ORDER, g);
+  if(!CATEGORY_ORDER[g]) CATEGORY_ORDER[g] = [];
+  if(c && !CATEGORY_ORDER[g].includes(c)) insertSorted(CATEGORY_ORDER[g], c);
+  if(c){
+    if(!SUBCATEGORY_ORDER[c]) SUBCATEGORY_ORDER[c] = [];
+    if(s && !SUBCATEGORY_ORDER[c].includes(s)) insertSorted(SUBCATEGORY_ORDER[c], s);
+  }
+}
+function cleanLabelKeys(keys){
+  let touched = false;
+  keys.forEach(k => { if(STATE.labelOverrides[k] !== undefined){ delete STATE.labelOverrides[k]; touched = true; } });
+  if(touched) persist('labelOverrides');
+}
+function taxCommit(msg){
+  saveTaxonomy();
+  rebuildBinder();
+  if(msg) toast(msg, 4200);
+  render();
+}
+function removeSectionFromTaxonomy(level, g, c, s){
+  if(level === 'sub'){
+    SUBCATEGORY_ORDER[c] = (SUBCATEGORY_ORDER[c]||[]).filter(x => x !== s);
+  } else if(level === 'cat'){
+    const grp = g || groupOfCategory(c);
+    if(grp) CATEGORY_ORDER[grp] = (CATEGORY_ORDER[grp]||[]).filter(x => x !== c);
+    delete SUBCATEGORY_ORDER[c];
+    cleanLabelKeys(['CATEGORY::'+c]);
+  } else {
+    (CATEGORY_ORDER[g]||[]).forEach(cc => { delete SUBCATEGORY_ORDER[cc]; cleanLabelKeys(['CATEGORY::'+cc]); });
+    delete CATEGORY_ORDER[g];
+    const i = GROUP_ORDER.indexOf(g); if(i > -1) GROUP_ORDER.splice(i, 1);
+    cleanLabelKeys(['GROUP::'+g]);
+  }
+}
+
+/* ---------- add ---------- */
+function openAddSectionModal(level, g, c){
+  const word = level==='group' ? 'group' : level==='cat' ? 'category' : 'subcategory';
+  const where = level==='cat' ? ` in “${g}”` : level==='sub' ? ` in “${c}”` : '';
+  openModal('Add ' + word, `
+    <div class="field"><label>Name of the new ${word}${esc(where)}</label><input type="text" id="addSecName" maxlength="60"></div>
+    ${level==='cat' ? `<div class="field"><label>First subcategory (optional)</label><input type="text" id="addSecSub" maxlength="60" placeholder="Leave blank to use the category's own name"></div>` : ''}
+    ${level==='group'
+      ? `<p class="tx-hint">A new group starts empty — add a category inside it afterwards.</p>`
+      : `<label class="tx-check"><input type="checkbox" id="addSecFill" checked> Pick the Pokémon to put in it next</label>`}
+  `, `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="addSecGo">Add</button>`);
+  const nameEl = $('#addSecName'); nameEl.focus();
+  const go = () => {
+    const name = (nameEl.value||'').trim();
+    if(!name){ toast("Name can't be empty."); return; }
+    const fill = !!($('#addSecFill') && $('#addSecFill').checked);
+    let target = null;
+    if(level === 'group'){
+      if(GROUP_ORDER.some(x => x.toLowerCase()===name.toLowerCase())){ toast('That group already exists.'); return; }
+      insertSorted(GROUP_ORDER, name); CATEGORY_ORDER[name] = [];
+    } else if(level === 'cat'){
+      const allCats = [].concat(...GROUP_ORDER.map(x => CATEGORY_ORDER[x]||[]));
+      if(allCats.some(x => x.toLowerCase()===name.toLowerCase())){ toast('A category with that name already exists — names have to be unique.'); return; }
+      const sub = (($('#addSecSub')||{}).value||'').trim() || name;
+      ensureTaxPath(g, name, sub);
+      target = { g, c:name, s:sub };
+    } else {
+      if(subsOf(c).some(x => x.toLowerCase()===name.toLowerCase())){ toast('That subcategory already exists.'); return; }
+      const grp = g || groupOfCategory(c);
+      ensureTaxPath(grp, c, name);
+      target = { g:grp, c, s:name };
+    }
+    saveTaxonomy(); rebuildBinder(); closeModal();
+    if(fill && target){ render(); openFillSection(target.g, target.c, target.s); }
+    else { toast(`“${name}” added.`); render(); }
+  };
+  $('#addSecGo').addEventListener('click', go);
+  nameEl.addEventListener('keydown', e => { if(e.key==='Enter') go(); });
+}
+function openFillSection(g, c, s){
+  openSpeciesPicker({
+    title: `Put Pokémon into “${s}”`,
+    note: 'Pokémon you pick are moved here from wherever they are now.',
+    confirmLabel: 'Move here',
+    family: true,
+    onDone: (names) => {
+      const list = names.map(n => speciesByName.get(n)).filter(Boolean);
+      placeSpecies(list, g, c, s);
+      taxCommit(`${list.length} Pokémon moved into “${s}”.`);
+    },
   });
 }
+
+/* ---------- rename a group (categories/subcategories already have renameCategory / renameSubcategory) ---------- */
+function renameGroup(oldName){
+  promptTextModal('Rename group', 'Group name', oldName, newName => {
+    if(newName === oldName){ closeModal(); return; }
+    if(GROUP_ORDER.some(x => x.toLowerCase()===newName.toLowerCase())){ toast('That group name is already used.'); return; }
+    const i = GROUP_ORDER.indexOf(oldName);
+    if(i > -1) GROUP_ORDER[i] = newName;
+    CATEGORY_ORDER[newName] = CATEGORY_ORDER[oldName] || [];
+    delete CATEGORY_ORDER[oldName];
+    let touched = false;
+    SPECIES.forEach(sp => {
+      if(sp.group === oldName){ sp.group = newName; touched = true; STATE.categoryOverrides[sp.name] = { group:sp.group, category:sp.category, subcategory:sp.subcategory }; }
+    });
+    if(touched) persist('categoryOverrides');
+    const ok = 'GROUP::'+oldName, nk = 'GROUP::'+newName;
+    if(STATE.labelOverrides[ok] !== undefined){ STATE.labelOverrides[nk] = STATE.labelOverrides[ok]; delete STATE.labelOverrides[ok]; persist('labelOverrides'); }
+    closeModal(); taxCommit('Group renamed.');
+  });
+}
+
+/* ---------- reorder (the binder follows this order) ---------- */
+function moveOrder(level, g, c, s, dir){
+  const arr = level==='group' ? GROUP_ORDER : level==='cat' ? CATEGORY_ORDER[g] : SUBCATEGORY_ORDER[c];
+  if(!arr) return;
+  const name = level==='group' ? g : level==='cat' ? c : s;
+  const i = arr.indexOf(name), j = i + dir;
+  if(i < 0 || j < 0 || j >= arr.length) return;
+  const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  taxCommit();
+}
+
+/* ---------- move / merge ---------- */
+function moveSubcategory(c, s, toG, toC, mergeInto, newName){
+  const target = mergeInto || newName;
+  const list = SPECIES.filter(x => x.category === c && x.subcategory === s);
+  ensureTaxPath(toG, toC, target);
+  placeSpecies(list, toG, toC, target);
+  if(!(c === toC && s === target)) SUBCATEGORY_ORDER[c] = (SUBCATEGORY_ORDER[c]||[]).filter(x => x !== s);
+  const emptied = c !== toC && !(SUBCATEGORY_ORDER[c]||[]).length && !SPECIES.some(x => x.category === c);
+  taxCommit(`“${s}” ${mergeInto ? 'merged into “'+mergeInto+'”' : 'moved to “'+toC+'”'} — ${list.length} Pokémon.` + (emptied ? ` “${c}” is now empty; delete it if you don't need it.` : ''));
+}
+function moveCategory(g, c, toG, mergeInto){
+  const list = SPECIES.filter(x => x.category === c);
+  if(mergeInto){
+    const mg = groupOfCategory(mergeInto) || toG;
+    list.forEach(sp => {
+      ensureTaxPath(mg, mergeInto, sp.subcategory);
+      sp.group = mg; sp.category = mergeInto;
+      STATE.categoryOverrides[sp.name] = { group:mg, category:mergeInto, subcategory:sp.subcategory };
+    });
+    if(list.length) persist('categoryOverrides');
+    removeSectionFromTaxonomy('cat', g, c);
+    taxCommit(`“${c}” merged into “${mergeInto}” — ${list.length} Pokémon.`);
+  } else {
+    CATEGORY_ORDER[g] = (CATEGORY_ORDER[g]||[]).filter(x => x !== c);
+    if(!CATEGORY_ORDER[toG]) CATEGORY_ORDER[toG] = [];
+    insertSorted(CATEGORY_ORDER[toG], c);
+    list.forEach(sp => { sp.group = toG; STATE.categoryOverrides[sp.name] = { group:toG, category:c, subcategory:sp.subcategory }; });
+    if(list.length) persist('categoryOverrides');
+    taxCommit(`“${c}” moved to “${toG}” — ${list.length} Pokémon.`);
+  }
+}
+function openMoveSectionModal(level, g, c, s){
+  if(level === 'group'){ toast('Groups can only be reordered — use the ▲ ▼ arrows.'); return; }
+  const isSub = level === 'sub';
+  const n = speciesInSection(level, g, c, s).length;
+  const st = { toG: g || groupOfCategory(c), toC: isSub ? c : '', mergeInto: '', name: isSub ? s : c };
+  function body(){
+    const cats = CATEGORY_ORDER[st.toG] || [];
+    if(isSub && !cats.includes(st.toC)) st.toC = cats[0] || '';
+    const targets = isSub ? subsOf(st.toC).filter(x => !(st.toC===c && x===s)) : cats.filter(x => x !== c);
+    if(st.mergeInto && !targets.includes(st.mergeInto)) st.mergeInto = '';
+    const thing = isSub ? 'subcategory' : 'category';
+    return `
+      <div class="field"><label>Move to group</label>
+        <select id="mvG">${GROUP_ORDER.map(x => `<option value="${esc(x)}" ${x===st.toG?'selected':''}>${esc(x)}</option>`).join('')}</select></div>
+      ${isSub ? `<div class="field"><label>Category</label>
+        <select id="mvC">${cats.map(x => `<option value="${esc(x)}" ${x===st.toC?'selected':''}>${esc(x)}</option>`).join('')}</select></div>` : ''}
+      <div class="field"><label>${isSub ? 'Subcategory' : 'Category'}</label>
+        <select id="mvT"><option value="">Keep “${esc(isSub?s:c)}” as its own ${thing} there</option>
+          ${targets.map(x => `<option value="${esc(x)}" ${x===st.mergeInto?'selected':''}>Merge into “${esc(x)}”</option>`).join('')}</select></div>
+      ${isSub && !st.mergeInto ? `<div class="field"><label>Name</label><input type="text" id="mvName" value="${esc(st.name)}" maxlength="60"></div>` : ''}
+      <p class="tx-hint">${n} Pokémon move with it. The binder reflows, so page numbers after this point may shift.</p>`;
+  }
+  openModal(isSub ? 'Move or merge subcategory' : 'Move or merge category', `<div id="mvBody">${body()}</div>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="mvGo">Move</button>`);
+  function wire(){
+    $('#mvG').addEventListener('change', e => { st.toG = e.target.value; st.toC = ''; st.mergeInto = ''; paint(); });
+    $('#mvC')?.addEventListener('change', e => { st.toC = e.target.value; st.mergeInto = ''; paint(); });
+    $('#mvT').addEventListener('change', e => { st.mergeInto = e.target.value; paint(); });
+    $('#mvName')?.addEventListener('input', e => { st.name = e.target.value; });
+  }
+  function paint(){ $('#mvBody').innerHTML = body(); wire(); }
+  wire();
+  $('#mvGo').addEventListener('click', () => {
+    if(isSub){
+      const name = st.mergeInto ? '' : (st.name||'').trim();
+      if(!st.toC){ toast('Choose a category.'); return; }
+      if(!st.mergeInto && !name){ toast("Name can't be empty."); return; }
+      if(!st.mergeInto && st.toC===c && name===s){ toast('Choose a different category, or merge into another subcategory.'); return; }
+      if(!st.mergeInto && subsOf(st.toC).some(x => x.toLowerCase()===name.toLowerCase() && !(st.toC===c && x===s))){ toast('That category already has a subcategory with this name — choose “Merge into” instead.'); return; }
+      closeModal(); moveSubcategory(c, s, st.toG, st.toC, st.mergeInto, name);
+    } else {
+      if(!st.mergeInto && st.toG === g){ toast('Choose a different group, or merge into another category.'); return; }
+      closeModal(); moveCategory(g, c, st.toG, st.mergeInto);
+    }
+  });
+}
+
+/* ---------- a shared three-step "Group > Category > Subcategory" chooser ---------- */
+function taxPathFields(prefix, st, ex){
+  ex = ex || {};
+  const groups = GROUP_ORDER.filter(x => x !== ex.group);
+  const cats = (CATEGORY_ORDER[st.g]||[]).filter(x => x !== ex.cat);
+  const subs = st.c ? subsOf(st.c).filter(x => !(ex.sub && st.c === ex.subCat && x === ex.sub)) : [];
+  const sel = (id, label, vals, cur, dis) => `<div class="field"><label>${label}</label><select id="${prefix}${id}" ${dis?'disabled':''}><option value="">— choose —</option>${vals.map(v => `<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('')}</select></div>`;
+  return sel('G','Group',groups,st.g,false) + sel('C','Category',cats,st.c,!st.g) + sel('S','Subcategory',subs,st.s,!st.c);
+}
+function wireTaxPathFields(prefix, st, repaint){
+  $('#'+prefix+'G')?.addEventListener('change', e => { st.g = e.target.value; st.c = ''; st.s = ''; repaint(); });
+  $('#'+prefix+'C')?.addEventListener('change', e => { st.c = e.target.value; st.s = ''; repaint(); });
+  $('#'+prefix+'S')?.addEventListener('change', e => { st.s = e.target.value; });
+}
+
+/* ---------- delete ---------- */
+function openDeleteSectionModal(level, g, c, s){
+  const word = level==='group' ? 'group' : level==='cat' ? 'category' : 'subcategory';
+  const name = level==='group' ? g : level==='cat' ? c : s;
+  if(level === 'cat' && !g) g = groupOfCategory(c);
+  if(level === 'sub' && !g) g = groupOfCategory(c);
+  const list = speciesInSection(level, g, c, s);
+  const names = new Set(list.map(x => x.name));
+  const owned = list.filter(x => isOwned(x.name)).length;
+  const nCards = STATE.collection.filter(x => names.has(x.species)).length;
+  const kids = level==='group' ? (CATEGORY_ORDER[g]||[]).length : level==='cat' ? subsOf(c).length : 0;
+  const kidWord = level==='group' ? 'categories' : 'subcategories';
+  if(!list.length){
+    confirmAction(`Delete the ${word} “${name}”${kids ? ` and its ${kids} empty ${kidWord}` : ''}? Nothing is filed in it.`, () => {
+      removeSectionFromTaxonomy(level, g, c, s);
+      taxCommit(`“${name}” deleted.`);
+    });
+    return;
+  }
+  const st = { mode:'move', g:'', c:'', s:'' };
+  const ex = { group: level==='group' ? g : '', cat: level==='cat' ? c : '', sub: level==='sub' ? s : '', subCat: level==='sub' ? c : '' };
+  function body(){
+    return `
+      <p style="font-size:13.5px;margin-top:0;"><strong>${esc(name)}</strong> has <strong>${list.length}</strong> Pokémon in it (${owned} owned)${kids ? ` across ${kids} ${kidWord}` : ''}. What should happen to them?</p>
+      <label class="tx-check"><input type="radio" name="delMode" value="move" ${st.mode==='move'?'checked':''}> Move them to another section, then delete this ${word}</label>
+      ${st.mode==='move' ? `<div class="tx-indent">${taxPathFields('dl', st, ex)}</div>` : ''}
+      <label class="tx-check"><input type="radio" name="delMode" value="delete" ${st.mode==='delete'?'checked':''}> Delete these Pokémon too</label>
+      ${st.mode==='delete' ? `<p class="tx-hint tx-warn">${list.length} Pokémon will be removed from the Pokédex and the binder${nCards ? `, and ${nCards} card${nCards===1?'':'s'} of yours filed under them will be left unlinked (still in your collection, but without a Pokémon)` : ''}. Built-in Pokémon can be brought back from Settings → Deleted Pokémon.</p>` : ''}`;
+  }
+  openModal('Delete ' + word + ' “' + name + '”', `<div id="dlBody">${body()}</div>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="dlGo">Delete ${word}</button>`);
+  function wire(){
+    $$('#dlBody input[name="delMode"]').forEach(r => r.addEventListener('change', () => { st.mode = r.value; paint(); }));
+    wireTaxPathFields('dl', st, paint);
+  }
+  function paint(){ $('#dlBody').innerHTML = body(); wire(); }
+  wire();
+  $('#dlGo').addEventListener('click', () => {
+    if(st.mode === 'move'){
+      if(!st.g || !st.c || !st.s){ toast('Choose where the Pokémon should go.'); return; }
+      closeModal();
+      placeSpecies(list, st.g, st.c, st.s);
+      removeSectionFromTaxonomy(level, g, c, s);
+      taxCommit(`“${name}” deleted — ${list.length} Pokémon moved to “${st.s}”.`);
+    } else {
+      closeModal();
+      confirmAction(`Really delete ${list.length} Pokémon along with the ${word} “${name}”?`, () => {
+        list.slice().forEach(sp => deleteSpecies(sp.name, null));
+        removeSectionFromTaxonomy(level, g, c, s);
+        taxCommit(`“${name}” and its ${list.length} Pokémon were deleted.`);
+      });
+    }
+  });
+}
+
+/* Pokémon whose saved section no longer exists anywhere in the lists would silently vanish from the
+   binder; computeBinderLayout now parks them at the end under "Unsorted", and this lets you re-file them. */
+function openFixOrphansModal(){
+  const orphans = SPECIES.filter(sp => !taxPathValid(sp));
+  if(!orphans.length){ toast('Everything is filed in a section.'); return; }
+  const st = { g:'', c:'', s:'' };
+  const body = () => `<p style="font-size:13.5px;margin-top:0;">${orphans.length} Pokémon aren't in any section${orphans.length<=6 ? ': ' + esc(orphans.map(x=>x.name).join(', ')) : ''}. Where should they go?</p>${taxPathFields('fx', st, {})}`;
+  openModal('Re-file unsorted Pokémon', `<div id="fxBody">${body()}</div>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="fxGo">Move them</button>`);
+  function paint(){ $('#fxBody').innerHTML = body(); wireTaxPathFields('fx', st, paint); }
+  wireTaxPathFields('fx', st, paint);
+  $('#fxGo').addEventListener('click', () => {
+    if(!st.g || !st.c || !st.s){ toast('Choose a group, category and subcategory.'); return; }
+    closeModal(); placeSpecies(orphans, st.g, st.c, st.s); taxCommit(`${orphans.length} Pokémon filed in “${st.s}”.`);
+  });
+}
+
+/* ---------- the manager screen ---------- */
+const taxOpenMap = new Map();   // node key -> true/false (expanded?) once you've toggled it
+function taxIsOpen(key, def){ return taxOpenMap.has(key) ? taxOpenMap.get(key) : def; }
+function addCategoryToGroup(group){ openAddSectionModal('cat', group, ''); }
+function addSubcategory(category){ openAddSectionModal('sub', groupOfCategory(category), category); }
+function deleteCategory(group, name){ openDeleteSectionModal('cat', group, name, ''); }
+function deleteSubcategory(category, name){ openDeleteSectionModal('sub', groupOfCategory(category), category, name); }
+function handleTaxAction(el){
+  const d = el.dataset, lv = d.level, g = d.g, c = d.c, s = d.s;
+  switch(d.tax){
+    case 'toggle': taxOpenMap.set(d.key, d.open !== '1'); render(); break;
+    case 'up': moveOrder(lv, g, c, s, -1); break;
+    case 'down': moveOrder(lv, g, c, s, 1); break;
+    case 'rename': if(lv==='group') renameGroup(g); else if(lv==='cat') renameCategory(g, c); else renameSubcategory(c, s); break;
+    case 'move': openMoveSectionModal(lv, g, c, s); break;
+    case 'delete': openDeleteSectionModal(lv, g, c, s); break;
+    case 'add': openAddSectionModal(lv, g, c); break;
+    case 'fill': openFillSection(g, c, s); break;
+    case 'orphans': openFixOrphansModal(); break;
+  }
+}
 function renderCategoryManager(){
+  const cnt = { g:new Map(), c:new Map(), s:new Map() };
+  const bump = (m, k, o) => { const v = m.get(k) || { n:0, o:0 }; v.n++; v.o += o; m.set(k, v); };
+  SPECIES.forEach(sp => { const o = isOwned(sp.name) ? 1 : 0; bump(cnt.g, sp.group, o); bump(cnt.c, sp.category, o); bump(cnt.s, sp.category+'||'+sp.subcategory, o); });
+  const orphans = SPECIES.filter(sp => !taxPathValid(sp));
+  const ib = (act, lv, g, c, s, icon, title, extra) => `<button class="iconbtn sm" data-tax="${act}" data-level="${lv}" data-g="${esc(g||'')}" data-c="${esc(c||'')}" data-s="${esc(s||'')}" title="${esc(title)}" aria-label="${esc(title)}" ${extra||''}>${icon}</button>`;
+  const actions = (lv, g, c, s, i, n) => `<span class="tx-actions">
+      ${ib('up', lv, g, c, s, ICONS.up, 'Move up', i===0?'disabled':'')}
+      ${ib('down', lv, g, c, s, ICONS.down, 'Move down', i===n-1?'disabled':'')}
+      ${lv!=='group' ? ib('move', lv, g, c, s, ICONS.move, lv==='cat' ? 'Move or merge this category' : 'Move or merge this subcategory') : ''}
+      ${lv==='sub' ? ib('fill', lv, g, c, s, ICONS.plus, 'Add Pokémon to this subcategory') : ''}
+      ${ib('rename', lv, g, c, s, ICONS.edit, 'Rename')}
+      ${ib('delete', lv, g, c, s, ICONS.trash, 'Delete')}
+    </span>`;
+  const chev = (key, open, has) => has ? `<button class="iconbtn sm tx-chev ${open?'open':''}" data-tax="toggle" data-key="${esc(key)}" data-open="${open?1:0}" aria-label="${open?'Collapse':'Expand'}">${ICONS.chev}</button>` : `<span class="tx-chev-sp"></span>`;
+  const count = v => v ? `${v.n} · ${v.o} owned` : '0';
   return `
-    <div class="panel" style="margin-bottom:16px;">
-      <div class="section-title" style="margin-top:0;">Manage categories</div>
-      <p style="color:var(--ink-soft);font-size:13px;">Add, rename, or remove the categories and subcategories used to sort your binder. A category or subcategory can't be deleted while a Pokémon is still assigned to it — recategorize those first.</p>
-      ${GROUP_ORDER.map(group => `
-        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px;">
-          <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${esc(group)}</div>
-          ${(CATEGORY_ORDER[group]||[]).map(cat => `
-            <div style="margin:0 0 8px 10px;">
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span style="font-size:13px;flex:1;">${esc(cat)}</span>
-                <button class="iconbtn sm" data-action="rename-category" data-group="${esc(group)}" data-category="${esc(cat)}" title="Rename category" aria-label="Rename category ${esc(cat)}">${ICONS.edit}</button>
-                <button class="iconbtn sm" data-action="delete-category" data-group="${esc(group)}" data-category="${esc(cat)}" title="Delete category" aria-label="Delete category ${esc(cat)}">${ICONS.trash}</button>
-              </div>
-              <div style="margin:4px 0 0 16px;">
-                ${(SUBCATEGORY_ORDER[cat]||[]).map(sub => `
-                  <div style="display:flex;align-items:center;gap:6px;padding:2px 0;">
-                    <span style="font-size:12px;color:var(--ink-soft);flex:1;">${esc(sub)}</span>
-                    <button class="iconbtn sm" data-action="rename-subcategory" data-category="${esc(cat)}" data-subcategory="${esc(sub)}" title="Rename subcategory" aria-label="Rename subcategory ${esc(sub)}">${ICONS.edit}</button>
-                    <button class="iconbtn sm" data-action="delete-subcategory" data-category="${esc(cat)}" data-subcategory="${esc(sub)}" title="Delete subcategory" aria-label="Delete subcategory ${esc(sub)}">${ICONS.trash}</button>
-                  </div>
-                `).join('')}
-                <button class="btn ghost sm" data-action="add-subcategory" data-category="${esc(cat)}" style="margin:4px 0 2px;">${ICONS.plus} Add subcategory</button>
-              </div>
+    <div class="panel tx-panel" style="margin-bottom:16px;">
+      <div class="section-title" style="margin-top:0;">Sections</div>
+      <p class="tx-hint">Groups, categories and subcategories decide how the main binder is ordered. Use ▲ ▼ to reorder, ⇄ to move a section somewhere else or merge it into another, ＋ to add Pokémon to a subcategory, and the bin to delete (you choose where its Pokémon go). Moves are saved straight away, and the binder reflows.</p>
+      ${orphans.length ? `<div class="tx-banner"><span>${orphans.length} Pokémon aren't in any section, so they're parked at the very end of the binder.</span><button class="btn sm" data-tax="orphans">Re-file them</button></div>` : ''}
+      <div class="tx-tree">
+        ${GROUP_ORDER.map((group, gi) => {
+          const cats = CATEGORY_ORDER[group] || [];
+          const gOpen = taxIsOpen('g::'+group, true);
+          return `
+          <div class="tx-node">
+            <div class="tx-row">
+              ${chev('g::'+group, gOpen, true)}
+              <span class="tx-name g">${esc(group)}</span><span class="tx-count">${count(cnt.g.get(group))}</span>
+              ${actions('group', group, '', '', gi, GROUP_ORDER.length)}
             </div>
-          `).join('')}
-          <button class="btn ghost sm" data-action="add-category" data-group="${esc(group)}" style="margin:2px 0 0 10px;">${ICONS.plus} Add category</button>
-        </div>
-      `).join('')}
-    </div>
+            ${gOpen ? `<div class="tx-kids">
+              ${cats.map((cat, ci) => {
+                const subs = subsOf(cat);
+                const cOpen = taxIsOpen('c::'+cat, false);
+                return `
+                <div class="tx-node">
+                  <div class="tx-row">
+                    ${chev('c::'+cat, cOpen, true)}
+                    <span class="tx-name c">${esc(cat)}</span><span class="tx-count">${count(cnt.c.get(cat))}</span>
+                    ${actions('cat', group, cat, '', ci, cats.length)}
+                  </div>
+                  ${cOpen ? `<div class="tx-kids">
+                    ${subs.map((sub, si) => `
+                      <div class="tx-row">
+                        <span class="tx-chev-sp"></span>
+                        <span class="tx-name s">${esc(sub)}</span><span class="tx-count">${count(cnt.s.get(cat+'||'+sub))}</span>
+                        ${actions('sub', group, cat, sub, si, subs.length)}
+                      </div>`).join('')}
+                    <button class="btn ghost sm tx-add" data-tax="add" data-level="sub" data-g="${esc(group)}" data-c="${esc(cat)}">${ICONS.plus} Add subcategory</button>
+                  </div>` : ''}
+                </div>`;
+              }).join('')}
+              <button class="btn ghost sm tx-add" data-tax="add" data-level="cat" data-g="${esc(group)}" data-c="">${ICONS.plus} Add category</button>
+            </div>` : ''}
+          </div>`;
+        }).join('')}
+        <button class="btn sm tx-add" data-tax="add" data-level="group" data-g="" data-c="">${ICONS.plus} Add group</button>
+      </div>
+    </div>`;
+}
+function renderSections(){
+  return `
+    <div class="pagehead"><div><h1>Organize sections</h1><div class="sub">Add, move, merge, reorder or delete the sections your binder is built from.</div></div>
+      <button class="btn" data-nav="binder">${ICONS.binder} Back to the binder</button></div>
+    ${renderCategoryManager()}`;
+}
+
+
+/* ============================================================
+   Species picker — a reusable "tick the Pokémon you want" dialog (search, filter by section / owned,
+   select all matching). Used to fill a new section and to fill your extra binders.
+   ============================================================ */
+function sortSpeciesList(list, mode){
+  const arr = list.slice();
+  if(mode === 'alpha') arr.sort((a,b) => a.name.localeCompare(b.name));
+  else if(mode === 'binder') arr.sort((a,b) => ((binderSlotBySpecies.get(a.name)||{}).slot ?? 1e9) - ((binderSlotBySpecies.get(b.name)||{}).slot ?? 1e9) || a.name.localeCompare(b.name));
+  else arr.sort((a,b) => (a.dex ?? 99999) - (b.dex ?? 99999) || a.name.localeCompare(b.name));
+  return arr;
+}
+function openSpeciesPicker(opts){
+  const have = opts.have || null;
+  const st = { q:'', g:'', c:'', s:'', own:'', order: opts.order || 'dex', hide: !!have, fam: false, newPage: false, sel:new Set() };
+  const MAXROWS = 150;
+  function matches(){
+    const q = norm(st.q);
+    return sortSpeciesList(SPECIES.filter(sp => {
+      if(st.hide && have && have.has(sp.name)) return false;
+      if(st.g && sp.group !== st.g) return false;
+      if(st.c && sp.category !== st.c) return false;
+      if(st.s && sp.subcategory !== st.s) return false;
+      if(st.own === 'yes' && !isOwned(sp.name)) return false;
+      if(st.own === 'no' && isOwned(sp.name)) return false;
+      if(q && !(norm(sp.name).includes(q) || String(sp.dex) === q)) return false;
+      return true;
+    }), st.order);
+  }
+  const opt = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('');
+  function filtersHTML(){
+    const cats = st.g ? (CATEGORY_ORDER[st.g]||[]) : [];
+    const subs = st.c ? subsOf(st.c) : [];
+    return `
+      <div class="spk-filters">
+        <input type="search" id="spkQ" placeholder="Search by name or Dex #" value="${esc(st.q)}" autocomplete="off">
+        <select id="spkG">${opt(GROUP_ORDER, st.g, 'All groups')}</select>
+        <select id="spkC" ${st.g?'':'disabled'}>${opt(cats, st.c, 'All categories')}</select>
+        <select id="spkS" ${st.c?'':'disabled'}>${opt(subs, st.s, 'All subcategories')}</select>
+        <select id="spkOwn"><option value="">Owned and missing</option><option value="yes" ${st.own==='yes'?'selected':''}>Owned only</option><option value="no" ${st.own==='no'?'selected':''}>Missing only</option></select>
+        <select id="spkOrder"><option value="dex" ${st.order==='dex'?'selected':''}>In Pokédex order</option><option value="alpha" ${st.order==='alpha'?'selected':''}>A–Z</option><option value="binder" ${st.order==='binder'?'selected':''}>In main-binder order</option></select>
+      </div>`;
+  }
+  openModal(opts.title || 'Choose Pokémon', `
+    <div id="spkTop">${filtersHTML()}</div>
+    <div class="spk-bar"><span id="spkInfo"></span><span><button class="btn sm ghost" id="spkAll">Select all matching</button> <button class="btn sm ghost" id="spkNone">Clear</button></span></div>
+    <div class="spk-list" id="spkList"></div>
+    <div class="spk-opts">
+      ${have ? `<label class="tx-check"><input type="checkbox" id="spkHide" checked> Hide Pokémon already in this binder</label>` : ''}
+      ${opts.family ? `<label class="tx-check"><input type="checkbox" id="spkFam"> Also include the rest of each Pokémon's evolution family</label>` : ''}
+      ${opts.newPageOption ? `<label class="tx-check"><input type="checkbox" id="spkNew"> Start these on a fresh page</label>` : ''}
+      ${opts.note ? `<p class="tx-hint">${esc(opts.note)}</p>` : ''}
+    </div>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="spkGo" disabled>${esc(opts.confirmLabel||'Add')}</button>`);
+  function updateInfo(total){
+    $('#spkInfo').textContent = `${total} match · ${st.sel.size} selected`;
+    const b = $('#spkGo'); b.disabled = st.sel.size === 0; b.textContent = `${opts.confirmLabel||'Add'} (${st.sel.size})`;
+  }
+  function paintList(){
+    const list = matches();
+    const shown = list.slice(0, MAXROWS);
+    $('#spkList').innerHTML = shown.length
+      ? shown.map(sp => `<label class="spk-row"><input type="checkbox" data-n="${esc(sp.name)}" ${st.sel.has(sp.name)?'checked':''}><span class="spk-nm">${esc(sp.name)}</span><span class="spk-meta">${sp.dex!=null?'#'+String(sp.dex).padStart(4,'0')+' · ':''}${esc(taxBreadcrumb(sp))}${isOwned(sp.name)?' · owned':''}</span></label>`).join('')
+        + (list.length > MAXROWS ? `<div class="tx-hint" style="padding:8px 10px;">Showing the first ${MAXROWS} of ${list.length}. Narrow the search, or tap “Select all matching” to take all ${list.length}.</div>` : '')
+      : `<div class="tx-hint" style="padding:12px;">Nothing matches.</div>`;
+    updateInfo(list.length);
+  }
+  function wireTop(){
+    $('#spkQ').addEventListener('input', e => { st.q = e.target.value; paintList(); });
+    $('#spkG').addEventListener('change', e => { st.g = e.target.value; st.c = ''; st.s = ''; paintTop(); });
+    $('#spkC').addEventListener('change', e => { st.c = e.target.value; st.s = ''; paintTop(); });
+    $('#spkS').addEventListener('change', e => { st.s = e.target.value; paintList(); });
+    $('#spkOwn').addEventListener('change', e => { st.own = e.target.value; paintList(); });
+    $('#spkOrder').addEventListener('change', e => { st.order = e.target.value; paintList(); });
+  }
+  function paintTop(){ $('#spkTop').innerHTML = filtersHTML(); wireTop(); paintList(); }
+  wireTop(); paintList();
+  $('#spkList').addEventListener('change', e => {
+    const cb = e.target.closest('input[data-n]'); if(!cb) return;
+    if(cb.checked) st.sel.add(cb.dataset.n); else st.sel.delete(cb.dataset.n);
+    updateInfo(matches().length);
+  });
+  $('#spkAll').addEventListener('click', () => { matches().forEach(sp => st.sel.add(sp.name)); paintList(); });
+  $('#spkNone').addEventListener('click', () => { st.sel.clear(); paintList(); });
+  $('#spkHide')?.addEventListener('change', e => { st.hide = e.target.checked; paintList(); });
+  $('#spkGo').addEventListener('click', () => {
+    let chosen = SPECIES.filter(sp => st.sel.has(sp.name));
+    if($('#spkFam') && $('#spkFam').checked){
+      const fams = new Set(chosen.map(sp => sp.evoFamily).filter(Boolean));
+      const set = new Set(chosen.map(sp => sp.name));
+      SPECIES.forEach(sp => { if(sp.evoFamily && fams.has(sp.evoFamily) && !set.has(sp.name)){ chosen.push(sp); set.add(sp.name); } });
+    }
+    chosen = sortSpeciesList(chosen, st.order);
+    const newPage = !!($('#spkNew') && $('#spkNew').checked);
+    closeModal();
+    opts.onDone(chosen.map(sp => sp.name), { newPage });
+  });
+}
+
+/* ============================================================
+   More binders — as many extra binders as you like, each with its own name, page layout and contents.
+   Beyond the main binder (built from your sections) and the extras binder (built from your spare copies),
+   these are binders you fill by hand: favourites, a Pikachu-only binder, a trade binder, whatever you need.
+   Saved in STATE.binders:  { id, name, cols, rows, items:[ { id, kind:'pokemon'|'label'|'blank',
+   species, cardId, text, newPage } ] }  (newPage = "this pocket starts a fresh page").
+   ============================================================ */
+const CB_LAYOUTS = [
+  { id:'3x3', cols:3, rows:3, label:'3 × 3 — 9 pockets (standard page)' },
+  { id:'2x2', cols:2, rows:2, label:'2 × 2 — 4 pockets' },
+  { id:'4x3', cols:4, rows:3, label:'4 across × 3 down — 12 pockets' },
+  { id:'3x4', cols:3, rows:4, label:'3 across × 4 down — 12 pockets' },
+  { id:'4x4', cols:4, rows:4, label:'4 × 4 — 16 pockets' },
+];
+let cbPage = 1, cbEdit = false;
+function cbGet(id){ return (STATE.binders||[]).find(b => b.id === id) || null; }
+function cbSave(){ persist('binders'); }
+function cbPer(b){ return b.cols * b.rows; }
+function cbLayoutId(b){ return b.cols + 'x' + b.rows; }
+// -> array of pages; each page is an array of { item, idx } in pocket order
+function cbLayout(b){
+  const per = cbPer(b), pages = [[]];
+  b.items.forEach((it, idx) => {
+    let cur = pages[pages.length-1];
+    if(it.newPage && cur.length > 0){ cur = []; pages.push(cur); }
+    else if(cur.length >= per){ cur = []; pages.push(cur); }
+    cur.push({ item:it, idx });
+  });
+  return pages;
+}
+function cbCardOf(it){ return it.cardId ? (STATE.collection.find(c => c.id === it.cardId) || null) : null; }
+function cbOwned(it){
+  if(it.kind !== 'pokemon') return false;
+  if(it.cardId) return !!cbCardOf(it);
+  return isOwned(it.species);
+}
+function cbStats(b){
+  const mons = b.items.filter(x => x.kind === 'pokemon');
+  return { pockets: b.items.length, mons: mons.length, owned: mons.filter(cbOwned).length, pages: cbLayout(b).length };
+}
+
+function renderBindersRoute(args){ return args[0] ? renderCustomBinder(args) : renderBindersHub(); }
+function renderBindersHub(){
+  const mine = STATE.binders || [];
+  const card = (nav, icon, title, desc, stat) => `
+    <button class="card toolcard" data-nav="${nav}">
+      <div class="toolcard-ico">${ICONS[icon]}</div>
+      <div class="toolcard-body">
+        <div class="toolcard-title">${esc(title)}</div>
+        <div class="toolcard-desc">${esc(desc)}</div>
+        <div class="toolcard-status ok">${esc(stat)}</div>
+      </div>
+    </button>`;
+  return `
+    <div class="pagehead"><div><h1>Binders</h1><div class="sub">Your main binder, the extras binder, and any other binders you set up.</div></div>
+      <button class="btn accent" data-cb="new">${ICONS.plus} New binder</button></div>
+    ${card('binder','binder','Main binder','One pick per Pokémon, ordered by your sections.', `${fmtInt(BINDER.length)} pockets · ${BINDER_MAX_PAGE} pages`)}
+    ${card('extras','extras','Extras binder','Every copy beyond your main-binder picks.', 'Built automatically from your collection')}
+    <div class="section-title">Your other binders</div>
+    ${mine.length ? mine.map(b => { const s = cbStats(b); return card('binders/'+b.id, 'binder', b.name,
+        `${b.cols} × ${b.rows} pockets per page`,
+        s.mons ? `${s.mons} Pokémon · ${s.owned} owned · ${s.pages} page${s.pages===1?'':'s'}` : 'Empty — open it to add Pokémon'); }).join('')
+      : `<div class="panel emptystate" style="padding:30px 20px;">No other binders yet. Tap <strong>New binder</strong> to set one up — a favourites binder, a Pikachu binder, a trade binder, anything you like.</div>`}
   `;
 }
+
+function renderCustomBinder(args){
+  const b = cbGet(args[0]);
+  if(!b) return `<div class="emptystate"><p>That binder doesn't exist any more.</p><button class="btn" data-nav="binders">Back to Binders</button></div>`;
+  const pages = cbLayout(b), per = cbPer(b), s = cbStats(b);
+  cbPage = Math.max(1, Math.min(pages.length, parseInt(args[1],10) || 1));
+  const cells = pages[cbPage-1] || [];
+  const grid = [];
+  for(let i = 0; i < per; i++) grid.push(renderCbPocket(b, cells[i] || null));
+  return `
+    <div class="crumbs"><span class="c" data-nav="binders">Binders</span> <span>›</span> <span>${esc(b.name)}</span></div>
+    <div class="pagehead">
+      <div><h1>${esc(b.name)}</h1><div class="sub">${b.cols} × ${b.rows} layout · ${s.pockets} pocket${s.pockets===1?'':'s'} · ${s.pages} page${s.pages===1?'':'s'}${s.mons ? ` · ${s.owned} of ${s.mons} Pokémon owned` : ''}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn accent" data-cb="add" data-id="${esc(b.id)}">${ICONS.plus} Add Pokémon</button>
+        <button class="btn ${cbEdit?'accent':''}" data-cb="edit-toggle">${ICONS.edit} ${cbEdit?'Done arranging':'Arrange'}</button>
+        <button class="btn" data-cb="settings" data-id="${esc(b.id)}">${ICONS.settings} Settings</button>
+      </div>
+    </div>
+    ${cbEdit ? `<div class="binder-edit-toolbar">
+      <div class="hint">Use ◀ ▶ to nudge a pocket, ⇄ to jump it to a page and pocket, ⤓ to start a fresh page there, ▤ to pick the exact card, ✕ to remove.</div>
+      <div class="btns"><button class="btn" data-cb="add-title" data-id="${esc(b.id)}">Add title card</button><button class="btn" data-cb="add-blank" data-id="${esc(b.id)}">Add blank pocket</button></div>
+    </div>` : ''}
+    ${b.items.length ? '' : `<div class="panel emptystate" style="padding:22px 18px;margin-bottom:14px;">This binder is empty. Tap <strong>Add Pokémon</strong> to start filling it — you can add a whole section at once.</div>`}
+    ${binderNavHTML('cb', cbPage, pages.length)}
+    <div class="binder-page"><div class="binder-grid cb-grid ${b.cols>=4?'cb-dense':''}" style="grid-template-columns:repeat(${b.cols},minmax(0,1fr));">${grid.join('')}</div></div>
+    ${binderNavHTML('cb', cbPage, pages.length, true)}
+  `;
+}
+function cbControlsHTML(b, it, idx){
+  const btn = (act, icon, title, extra) => `<button class="iconbtn cb-b ${extra&&extra.on?'on':''}" data-cb="${act}" data-id="${esc(b.id)}" data-item="${esc(it.id)}" title="${esc(title)}" aria-label="${esc(title)}" ${extra&&extra.dis?'disabled':''}>${icon}</button>`;
+  return `<div class="cb-ctl">
+    ${btn('left', ICONS.left, 'Move earlier', { dis: idx===0 })}
+    ${btn('right', ICONS.right, 'Move later', { dis: idx===b.items.length-1 })}
+    ${btn('moveto', ICONS.move, 'Move to a page and pocket…')}
+    ${btn('newpage', ICONS.pagebreak, it.newPage ? 'This pocket starts a fresh page (tap to undo)' : 'Start a fresh page here', { on: !!it.newPage })}
+    ${it.kind==='pokemon' ? btn('card', ICONS.collection, 'Choose which card goes here') : ''}
+    ${it.kind==='label' ? btn('edit-title', ICONS.edit, 'Edit title') : ''}
+    ${btn('remove', ICONS.close, 'Remove from this binder')}
+  </div>`;
+}
+function renderCbPocket(b, cell){
+  if(!cell) return '<div class="pocket empty"></div>';
+  const it = cell.item, edit = cbEdit;
+  const ctl = edit ? cbControlsHTML(b, it, cell.idx) : '';
+  if(it.kind === 'blank') return `<div class="pocket empty cb-blank"><div class="cb-blank-t">blank</div>${ctl}</div>`;
+  if(it.kind === 'label') return `<div class="pocket label"><div class="lv">TITLE</div><div class="nm">${esc(it.text||'')}</div>${ctl}</div>`;
+  const sp = speciesByName.get(it.species);
+  if(!sp) return `<div class="pocket missing"><div class="pocket-overlay"><div class="body"><div class="nm">${esc(it.species||'?')}</div><div class="evomini">no longer in the Pokédex</div></div></div>${ctl}</div>`;
+  const card = cbCardOf(it), owned = cbOwned(it);
+  const setLabel = card ? [card.set, card.cardNumber ? '#'+card.cardNumber : ''].filter(Boolean).join(' ') : '';
+  const nav = edit ? '' : `data-nav-species="${esc(sp.name)}"`;
+  return `<div class="pocket ${owned?'owned':'missing'} ${card?'haspick':''}" ${nav}>
+    ${owned ? `<div class="pocket-art">${speciesImgTag(sp,'pocket-img')}</div>` : ''}
+    <div class="pocket-overlay">
+      <div class="top"><span class="dexno">${sp.dex && !String(sp.dex).startsWith('TBD') ? '#'+String(sp.dex).padStart(4,'0') : 'G10'}</span>${sp.types ? `<span class="typedots">${typeDots(sp.types)}</span>` : ''}</div>
+      <div class="body"><div class="nm">${esc(sp.name)}</div>${setLabel ? `<div class="setmini">${esc(setLabel)}</div>` : (it.cardId ? `<div class="evomini">chosen card was removed</div>` : '')}</div>
+      <div class="foot">${owned?'<span class="dot owned"></span>':''}${card?'<span class="dot pick"></span>':''}</div>
+    </div>${ctl}</div>`;
+}
+
+/* ---- creating, adjusting, deleting a binder ---- */
+function layoutSelectHTML(id, cur){
+  return `<select id="${id}">${CB_LAYOUTS.map(l => `<option value="${l.id}" ${l.id===cur?'selected':''}>${esc(l.label)}</option>`).join('')}</select>`;
+}
+function openNewBinderModal(){
+  openModal('New binder', `
+    <div class="field"><label>Name</label><input type="text" id="nbName" maxlength="60" placeholder="e.g. Favourites, Pikachu, Trade binder"></div>
+    <div class="field"><label>Pockets per page</label>${layoutSelectHTML('nbLayout','3x3')}</div>
+    <p class="tx-hint">You'll pick the first Pokémon next. You can change the name and layout any time from the binder's Settings.</p>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="nbGo">Create binder</button>`);
+  $('#nbName').focus();
+  const go = () => {
+    const name = ($('#nbName').value||'').trim();
+    if(!name){ toast('Give the binder a name.'); return; }
+    if((STATE.binders||[]).some(x => x.name.toLowerCase() === name.toLowerCase())){ toast('You already have a binder with that name.'); return; }
+    const lay = CB_LAYOUTS.find(l => l.id === $('#nbLayout').value) || CB_LAYOUTS[0];
+    const b = { id: uid(), name, cols: lay.cols, rows: lay.rows, items: [], created: todayISO() };
+    STATE.binders.push(b); cbSave();
+    closeModal(); cbEdit = false;
+    location.hash = '#/binders/' + b.id;
+    openAddToBinder(b);
+  };
+  $('#nbGo').addEventListener('click', go);
+  $('#nbName').addEventListener('keydown', e => { if(e.key==='Enter') go(); });
+}
+function openBinderSettings(b){
+  openModal('Binder settings', `
+    <div class="field"><label>Name</label><input type="text" id="bsName" maxlength="60" value="${esc(b.name)}"></div>
+    <div class="field"><label>Pockets per page</label>${layoutSelectHTML('bsLayout', cbLayoutId(b))}</div>
+    <p class="tx-hint">Changing the layout re-flows the pockets into pages of the new size. Anything you've marked “start a fresh page” still starts one.</p>
+    <div style="margin-top:14px;"><button class="btn" id="bsDelete">${ICONS.trash} Delete this binder</button></div>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="bsSave">Save</button>`);
+  $('#bsSave').addEventListener('click', () => {
+    const name = ($('#bsName').value||'').trim();
+    if(!name){ toast("Name can't be empty."); return; }
+    if(STATE.binders.some(x => x.id !== b.id && x.name.toLowerCase() === name.toLowerCase())){ toast('You already have a binder with that name.'); return; }
+    const lay = CB_LAYOUTS.find(l => l.id === $('#bsLayout').value) || CB_LAYOUTS[0];
+    b.name = name; b.cols = lay.cols; b.rows = lay.rows; cbSave();
+    closeModal(); toast('Saved.'); render();
+  });
+  $('#bsDelete').addEventListener('click', () => {
+    closeModal();
+    confirmAction(`Delete the binder “${b.name}”? Only the binder's layout is removed — your cards and Pokémon are not touched. This can't be undone.`, () => {
+      STATE.binders = STATE.binders.filter(x => x.id !== b.id); cbSave();
+      toast('Binder deleted.'); location.hash = '#/binders'; render();
+    });
+  });
+}
+
+/* ---- adding things ---- */
+function openAddToBinder(b){
+  const have = new Set(b.items.filter(x => x.kind === 'pokemon').map(x => x.species));
+  openSpeciesPicker({
+    title: `Add to “${b.name}”`,
+    confirmLabel: 'Add to binder',
+    have, newPageOption: !!b.items.length, family: true,
+    onDone: (names, o) => {
+      names.forEach((n, i) => b.items.push({ id: uid(), kind:'pokemon', species:n, cardId:null, newPage: !!(o.newPage && i === 0) }));
+      cbSave(); toast(`${names.length} Pokémon added.`); render();
+    },
+  });
+}
+function openTitleModal(b, item){
+  openModal(item ? 'Edit title card' : 'Add title card', `
+    <div class="field"><label>Title (e.g. a section name)</label><input type="text" id="ttText" maxlength="60" value="${esc(item ? item.text : '')}"></div>
+    ${item ? '' : `<label class="tx-check"><input type="checkbox" id="ttNew" checked> Start it on a fresh page</label>`}`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="ttGo">${item?'Save':'Add'}</button>`);
+  $('#ttText').focus();
+  const go = () => {
+    const text = ($('#ttText').value||'').trim();
+    if(!text){ toast("Title can't be empty."); return; }
+    if(item) item.text = text;
+    else b.items.push({ id: uid(), kind:'label', text, newPage: !!($('#ttNew') && $('#ttNew').checked && b.items.length) });
+    cbSave(); closeModal(); render();
+  };
+  $('#ttGo').addEventListener('click', go);
+  $('#ttText').addEventListener('keydown', e => { if(e.key==='Enter') go(); });
+}
+
+/* ---- arranging ---- */
+function cbShift(b, itemId, dir){
+  const i = b.items.findIndex(x => x.id === itemId), j = i + dir;
+  if(i < 0 || j < 0 || j >= b.items.length) return;
+  const a = b.items[i], c = b.items[j];
+  b.items[i] = c; b.items[j] = a;
+  // page breaks belong to the position, not the Pokémon, so a nudge is a clean swap
+  const t = a.newPage; a.newPage = c.newPage; c.newPage = t;
+  cbSave(); render();
+}
+function cbMoveToSlot(b, itemId, page, pocket){
+  const pages = cbLayout(b), per = cbPer(b);
+  page = Math.max(1, Math.min(pages.length, page||1));
+  pocket = Math.max(1, Math.min(per, pocket||1));
+  const cells = pages[page-1];
+  const from = b.items.findIndex(x => x.id === itemId); if(from < 0) return;
+  const it = b.items[from];
+  let T = pocket-1 < cells.length ? cells[pocket-1].idx : (cells.length ? cells[cells.length-1].idx + 1 : b.items.length);
+  const target = pocket-1 < cells.length ? b.items[T] : null;
+  if(T === from || (T === from + 1 && !target)) return;
+  // keep the pages around its old home intact
+  if(it.newPage && b.items[from+1] && !b.items[from+1].newPage) b.items[from+1].newPage = true;
+  b.items.splice(from, 1);
+  if(from < T) T--;
+  // take over a "fresh page" mark if we land on the first pocket of a page
+  it.newPage = false;
+  if(target && target.newPage && target !== it){ it.newPage = true; target.newPage = false; }
+  b.items.splice(T, 0, it);
+  cbSave(); render();
+}
+function openMoveToModal(b, itemId){
+  const pages = cbLayout(b);
+  openModal('Move to…', `
+    <div class="field"><label>Page (1–${pages.length})</label><input type="number" id="mtPage" min="1" max="${pages.length}" value="${cbPage}"></div>
+    <div class="field"><label>Pocket (1–${cbPer(b)}, counting left to right, top to bottom)</label><input type="number" id="mtPocket" min="1" max="${cbPer(b)}" value="1"></div>
+    <p class="tx-hint">It slots in at that spot and everything after it shifts along.</p>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="mtGo">Move</button>`);
+  $('#mtGo').addEventListener('click', () => {
+    const p = parseInt($('#mtPage').value, 10), k = parseInt($('#mtPocket').value, 10);
+    closeModal(); cbMoveToSlot(b, itemId, p, k);
+  });
+}
+function openChooseCard(b, itemId){
+  const it = b.items.find(x => x.id === itemId); if(!it) return;
+  const cards = cardsForSpecies(it.species);
+  const row = (id, title, meta, on) => `<button class="spk-row cb-cardrow ${on?'on':''}" data-cb="set-card" data-id="${esc(b.id)}" data-item="${esc(itemId)}" data-card="${esc(id)}"><span class="spk-nm">${esc(title)}</span><span class="spk-meta">${esc(meta)}</span></button>`;
+  openModal('Which card goes here?', `
+    <div class="spk-list" style="max-height:50vh;">
+      ${row('', 'Any card', `Just track ${it.species}`, !it.cardId)}
+      ${cards.length ? cards.map(c => row(c.id, [c.set, c.cardNumber ? '#'+c.cardNumber : ''].filter(Boolean).join(' ') || 'Card', [c.rarity, c.variance, c.quantity>1 ? '×'+c.quantity : ''].filter(Boolean).join(' · '), it.cardId === c.id)).join('') : `<div class="tx-hint" style="padding:12px;">You don't have any cards logged for ${esc(it.species)} yet.</div>`}
+    </div>`, `<button class="btn ghost" data-action="close-modal">Close</button>`);
+}
+function handleCbAction(el){
+  const d = el.dataset, b = d.id ? cbGet(d.id) : null;
+  const it = b && d.item ? b.items.find(x => x.id === d.item) : null;
+  switch(d.cb){
+    case 'new': openNewBinderModal(); break;
+    case 'add': if(b) openAddToBinder(b); break;
+    case 'add-title': if(b) openTitleModal(b); break;
+    case 'edit-title': if(b && it) openTitleModal(b, it); break;
+    case 'add-blank': if(b){ b.items.push({ id: uid(), kind:'blank' }); cbSave(); render(); } break;
+    case 'edit-toggle': cbEdit = !cbEdit; render(); break;
+    case 'settings': if(b) openBinderSettings(b); break;
+    case 'left': if(b) cbShift(b, d.item, -1); break;
+    case 'right': if(b) cbShift(b, d.item, 1); break;
+    case 'moveto': if(b) openMoveToModal(b, d.item); break;
+    case 'newpage': if(b && it){ it.newPage = !it.newPage; cbSave(); render(); } break;
+    case 'card': if(b && it) openChooseCard(b, d.item); break;
+    case 'set-card': if(b && it){ it.cardId = d.card || null; cbSave(); closeModal(); render(); } break;
+    case 'remove': if(b && it){
+      const i = b.items.indexOf(it);
+      if(it.newPage && b.items[i+1] && !b.items[i+1].newPage) b.items[i+1].newPage = true;
+      b.items.splice(i, 1); cbSave(); render();
+    } break;
+  }
+}
+
 
 /* ============================================================
    Recategorize — change a species' (or several species') taxonomy
@@ -4074,6 +4877,7 @@ function renderBinder(args){
     <div class="pagehead">
       <div><h1>Binder</h1><div class="sub">3 × 3 physical layout · ${fmtInt(BINDER.length)} pockets across ${BINDER_MAX_PAGE} pages</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" data-nav="sections">${ICONS.taxonomy} Organize sections</button>
         <button class="btn" data-action="open-add-species">${ICONS.plus} Add Pokémon</button>
         <button class="btn ${binderEditMode?'accent':''}" data-action="toggle-binder-edit">${ICONS.edit} ${binderEditMode?'Done editing labels':'Edit labels'}</button>
       </div>
@@ -5269,7 +6073,11 @@ function renderSettings(){
         <button class="btn accent" id="csDisconnectBtn">${ICONS.cloudOff} Turn off cloud sync</button>
       </div>`}
     </div>
-    ${renderCategoryManager()}
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="section-title" style="margin-top:0;">Sections</div>
+      <p style="color:var(--ink-soft);font-size:13px;">Add, move, merge, reorder or delete the groups, categories and subcategories your binder is built from.</p>
+      <button class="btn" data-nav="sections">${ICONS.taxonomy} Open Organize sections</button>
+    </div>
     <div class="panel">
       <div class="section-title" style="margin-top:0;">Reset</div>
       <p style="color:var(--ink-soft);font-size:13px;">Permanently erase all cards, binder picks, and import history from this browser${cs.enabled ? ' and from the cloud sync code above' : ''}.</p>
@@ -5339,6 +6147,7 @@ function restoreBackup(file){
           customSpecies: data.customSpecies||[],
           collectrSnapshot: data.collectrSnapshot||null,
           removedInApp: data.removedInApp||{},
+          binders: Array.isArray(data.binders) ? data.binders : [],
         };
         GROUP_ORDER = STATE.taxonomy.groups;
         CATEGORY_ORDER = STATE.taxonomy.categories;
