@@ -234,7 +234,13 @@ table.datatable tr:hover td{background:var(--paper-sunken);}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper-raised);}
 
 /* ---------- Binder ---------- */
-.binder-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.binder-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;flex-wrap:wrap;scroll-margin-top:72px;}
+.binder-toolbar.bottom{margin:16px 0 0;}
+.xmode{cursor:pointer;}
+.xmode-pick{display:block;width:100%;text-align:left;margin-bottom:8px;padding:12px;}
+.xmode-pick b{display:block;}
+.xmode-pick span{font-size:12.5px;color:var(--ink-soft);}
+.xmode-pick.on{border-color:var(--accent,#2a6);box-shadow:0 0 0 2px rgba(40,160,100,.25);}
 .binder-pagelabel{font-family:var(--font-display);font-size:17px;}
 .binder-page{
   background:linear-gradient(180deg,#1c3a2c,#0f241b);border-radius:14px;padding:16px;box-shadow:var(--shadow-lg);
@@ -885,6 +891,7 @@ function deleteSpecies(name, target){
   const drop = obj => { if(obj) delete obj[name]; };
   drop(STATE.picks); drop(STATE.manualOwned); drop(STATE.categoryOverrides); drop(STATE.familyOverrides);
   const hl = STATE.settings && STATE.settings.binderHl; if(hl && hl.decided) drop(hl.decided);
+  if(STATE.settings) drop(STATE.settings.extrasMode);
   Object.keys(STATE.overrides||{}).forEach(k => { if(STATE.overrides[k] === name){ if(target) STATE.overrides[k] = target; else delete STATE.overrides[k]; } });
   Object.keys(STATE.removedInApp||{}).forEach(id => { const r = STATE.removedInApp[id]; if(r && r.card && r.card.species === name) r.card.species = target || null; });
   STATE.history.forEach(b => { if(Array.isArray(b.newSpecies)) b.newSpecies = b.newSpecies.filter(n => n !== name); });
@@ -963,6 +970,7 @@ function migrateSpeciesKey(from, to){
   const mv = obj => { if(obj && Object.prototype.hasOwnProperty.call(obj, from)){ obj[to] = obj[from]; delete obj[from]; } };
   mv(STATE.picks); mv(STATE.manualOwned); mv(STATE.categoryOverrides); mv(STATE.familyOverrides);
   const hl = STATE.settings && STATE.settings.binderHl; if(hl && hl.decided) mv(hl.decided);
+  if(STATE.settings) mv(STATE.settings.extrasMode);
   Object.keys(STATE.overrides||{}).forEach(k => { if(STATE.overrides[k] === from) STATE.overrides[k] = to; });
   Object.keys(STATE.removedInApp||{}).forEach(id => { const r = STATE.removedInApp[id]; if(r && r.card && r.card.species === from) r.card.species = to; });
   STATE.history.forEach(b => { if(Array.isArray(b.newSpecies)) b.newSpecies = b.newSpecies.map(n => n === from ? to : n); });
@@ -1904,6 +1912,12 @@ document.addEventListener('click', (e) => {
   if(editBtn){ openCardEditor(editBtn.dataset.card); return; }
   const delBtn = e.target.closest('[data-action="delete-card"]');
   if(delBtn){ deleteCard(delBtn.dataset.card); return; }
+  const exModeBtn = e.target.closest('[data-action="extras-mode"]');
+  if(exModeBtn){ openExtrasModeModal(exModeBtn.dataset.species); return; }
+  const exModePick = e.target.closest('[data-action="extras-mode-set"]');
+  if(exModePick){ applyExtrasMode(exModePick.dataset.species, exModePick.dataset.mode, !!($('#exModeFamily') && $('#exModeFamily').checked)); return; }
+  const exFilterBtn = e.target.closest('[data-action="extras-filter-mode"]');
+  if(exFilterBtn){ extrasFilter.mode = exFilterBtn.dataset.value || ''; extrasPage = 1; render(); return; }
   const decideOpen = e.target.closest('[data-action="binder-decide"]');
   if(decideOpen){ openBinderDecideModal(decideOpen.dataset.species); return; }
   const decidePick = e.target.closest('[data-action="binder-decide-pick"]');
@@ -2113,18 +2127,20 @@ function wireScreenEvents(routeId){
     $('#evoSearch')?.addEventListener('input', debounce(e => { evolutionsFilter.q = e.target.value; render(); }, 220));
   }
   else if(routeId === 'binder'){
-    $('#binderPrev')?.addEventListener('click', () => { location.hash = '#/binder/' + (binderPage-1); });
-    $('#binderNext')?.addEventListener('click', () => { location.hash = '#/binder/' + (binderPage+1); });
-    $('#binderGo')?.addEventListener('click', () => { const v = parseInt($('#binderJump').value,10)||1; location.hash = '#/binder/' + v; });
+    $$('.js-bd-prev').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); location.hash = '#/binder/' + (binderPage-1); }));
+    $$('.js-bd-next').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); location.hash = '#/binder/' + (binderPage+1); }));
+    $$('.js-bd-go').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); const v = parseInt(b.closest('.pager').querySelector('input').value,10)||1; location.hash = '#/binder/' + v; }));
+    runBinderScroll();
     $('#binderHlDate')?.addEventListener('change', e => { binderHlState().sinceDate = e.target.value || null; persist('settings'); render(); });
     wireSpeciesSearchInput($('#binderSearch'), $('#binderSearchDropdown'));
   }
   else if(routeId === 'extras'){
     $('#binderHlDate')?.addEventListener('change', e => { binderHlState().sinceDate = e.target.value || null; persist('settings'); render(); });
     $('#extrasSearch')?.addEventListener('input', debounce(e => { extrasFilter.q = e.target.value; extrasPage = 1; render(); }, 220));
-    $('#extrasPrev')?.addEventListener('click', () => { extrasPage = Math.max(1, extrasPage-1); render(); });
-    $('#extrasNext')?.addEventListener('click', () => { extrasPage = extrasPage+1; render(); });
-    $('#extrasGo')?.addEventListener('click', () => { extrasPage = parseInt($('#extrasJump').value,10)||1; render(); });
+    $$('.js-ex-prev').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); extrasPage = Math.max(1, extrasPage-1); render(); }));
+    $$('.js-ex-next').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); extrasPage = extrasPage+1; render(); }));
+    $$('.js-ex-go').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); extrasPage = parseInt(b.closest('.pager').querySelector('input').value,10)||1; render(); }));
+    runBinderScroll();
   }
   else if(routeId === 'import'){
     const dz = $('#dropzone');
@@ -3606,11 +3622,13 @@ function extrasHighlightPanelHTML(rows, status){
   if(!STATE.history.length) return '';
   const pages = new Map(); let nNew = 0, nUpd = 0; const spNew = new Set(), spUpd = new Set();
   rows.forEach(r => {
-    if(r.type !== 'POKÉMON' || !r.cardInfo) return;
-    const st = status.get(r.cardInfo.cardId); if(!st) return;
-    if(st === 'new'){ nNew++; spNew.add(r.species.name); } else { nUpd++; spUpd.add(r.species.name); }
-    const cur = pages.get(r.page);
-    if(cur === undefined || (st === 'new' && cur !== 'new')) pages.set(r.page, st);
+    if(r.type !== 'POKÉMON' || !r.copies) return;
+    r.copies.forEach(c => {
+      const st = status.get(c.cardId); if(!st) return;
+      if(st === 'new'){ nNew++; spNew.add(r.species.name); } else { nUpd++; spUpd.add(r.species.name); }
+      const cur = pages.get(r.page);
+      if(cur === undefined || (st === 'new' && cur !== 'new')) pages.set(r.page, st);
+    });
   });
   const pageList = [...pages.keys()].sort((a,b) => a-b);
   const next = pageList.find(pg => pg > extrasPage) ?? pageList[0];
@@ -3661,6 +3679,25 @@ function binderHighlightPanelHTML(hl){
     </div>`;
 }
 
+/* Prev / page / Next bar. Shown directly above AND below the binder grid so you never have to scroll to turn the page. */
+let pendingBinderScroll = false;
+function flagBinderScroll(btn){ pendingBinderScroll = !!(btn && btn.closest('.binder-toolbar.bottom')); }
+function runBinderScroll(){
+  if(!pendingBinderScroll) return;
+  pendingBinderScroll = false;
+  requestAnimationFrame(() => { const t = $('.binder-toolbar.top'); if(t) t.scrollIntoView({block:'start'}); });
+}
+function binderNavHTML(prefix, page, total, bottom){
+  return `
+    <div class="binder-toolbar ${bottom?'bottom':'top'}">
+      <button class="btn js-${prefix}-prev" ${page<=1?'disabled':''}>${ICONS.left} Prev</button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="binder-pagelabel">Page ${page} of ${total}</span>
+        <div class="pager"><input type="number" min="1" max="${total}" value="${page}"><button class="btn sm js-${prefix}-go">Go</button></div>
+      </div>
+      <button class="btn js-${prefix}-next" ${page>=total?'disabled':''}>Next ${ICONS.right}</button>
+    </div>`;
+}
 function renderBinder(args){
   if(args[0]) binderPage = Math.max(1, Math.min(BINDER_MAX_PAGE, parseInt(args[0],10)||1));
   const slots = binderByPage.get(binderPage) || [];
@@ -3698,15 +3735,9 @@ function renderBinder(args){
       </div>
     </div>` : ''}
     ${binderHighlightPanelHTML(hl)}
-    <div class="binder-toolbar">
-      <button class="btn" id="binderPrev" ${binderPage<=1?'disabled':''}>${ICONS.left} Prev</button>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <span class="binder-pagelabel">Page ${binderPage} of ${BINDER_MAX_PAGE}</span>
-        <div class="pager"><input type="number" id="binderJump" min="1" max="${BINDER_MAX_PAGE}" value="${binderPage}"><button class="btn sm" id="binderGo">Go</button></div>
-      </div>
-      <button class="btn" id="binderNext" ${binderPage>=BINDER_MAX_PAGE?'disabled':''}>Next ${ICONS.right}</button>
-    </div>
+    ${binderNavHTML('bd', binderPage, BINDER_MAX_PAGE)}
     <div class="binder-page"><div class="binder-grid">${cells.join('')}</div></div>
+    ${binderNavHTML('bd', binderPage, BINDER_MAX_PAGE, true)}
   `;
 }
 function renderPocket(slot, editMode, selection, hl){
@@ -3793,17 +3824,60 @@ function extrasBySpecies(){
   });
   return map;
 }
+/* The "main" Pokémon a form belongs to: Alolan Meowth files under Meowth (M), Mega Delphox under Delphox (D). */
+function extrasMainName(s){ return (s && (s.baseSpecies || s.name)) || ''; }
 function extrasLetterOf(name){
   const m = String(name||'').match(/[A-Za-z]/);
   return m ? m[0].toUpperCase() : '#';
 }
-/* Strict alphabetical layout: one pocket per extra COPY (so 3 extra copies of
-   a species means 3 separate pockets, each individually trackable), grouped
-   under a letter-header pocket, with a fresh page starting the moment the
-   first letter changes — never mid-page. */
+/* How you want each Pokémon's extras kept in the binder (saved in settings, so it's in backups):
+   'stack'   - all copies behind one another in a single pocket
+   'display' - every copy in its own pocket, on show
+   'pages'   - its own separate page(s), one pocket per copy
+   not marked yet behaves like 'display'. */
+function extrasModeOf(name){
+  const m = STATE.settings && STATE.settings.extrasMode && STATE.settings.extrasMode[name];
+  return (m === 'stack' || m === 'display' || m === 'pages') ? m : '';
+}
+const EXTRAS_MODE_INFO = {
+  stack:   { short:'Stacked',   icon:'▤', desc:'All copies go behind one another in a single pocket.' },
+  display: { short:'On display', icon:'▦', desc:'Every copy gets its own pocket, all visible.' },
+  pages:   { short:'Own pages', icon:'▭', desc:'Gets its own separate page(s), one pocket per copy.' },
+};
+function applyExtrasMode(name, mode, includeForms){
+  if(!STATE.settings.extrasMode) STATE.settings.extrasMode = {};
+  const names = [name];
+  if(includeForms){
+    const main = extrasMainName(speciesByName.get(name));
+    const em = extrasBySpecies();
+    SPECIES.forEach(x => { if(x.name !== name && extrasMainName(x) === main && em.has(x.name)) names.push(x.name); });
+  }
+  names.forEach(n => { if(mode) STATE.settings.extrasMode[n] = mode; else delete STATE.settings.extrasMode[n]; });
+  persist('settings');
+  closeModal();
+  toast(mode ? `${names.length>1 ? names.length+' Pokémon' : name}: ${EXTRAS_MODE_INFO[mode].short.toLowerCase()}. Page numbers may have shifted.` : 'Mark cleared.');
+  render();
+}
+function openExtrasModeModal(name){
+  const sp = speciesByName.get(name); if(!sp) return;
+  const cur = extrasModeOf(name);
+  const main = extrasMainName(sp);
+  const em = extrasBySpecies();
+  const others = SPECIES.filter(x => x.name !== name && extrasMainName(x) === main && em.has(x.name));
+  const n = (em.get(name)||[]).length;
+  const opt = m => `<button class="btn xmode-pick ${cur===m?'on':''}" data-action="extras-mode-set" data-species="${esc(name)}" data-mode="${m}"><b>${EXTRAS_MODE_INFO[m].icon} ${EXTRAS_MODE_INFO[m].short}${cur===m?' ✓':''}</b><span>${EXTRAS_MODE_INFO[m].desc}</span></button>`;
+  openModal(`${name} — extras`, `
+    <p style="font-size:13px;margin:0 0 10px;">${fmtInt(n)} extra cop${n===1?'y':'ies'}. How do you want to keep ${n===1?'it':'them'} in the extras binder?</p>
+    ${opt('stack')}${opt('display')}${opt('pages')}
+    ${others.length ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:6px;"><input type="checkbox" id="exModeFamily"> Also apply to ${others.map(o=>esc(o.name)).join(', ')}</label>` : ''}
+  `, `${cur ? `<button class="btn ghost" data-action="extras-mode-set" data-species="${esc(name)}" data-mode="">Clear mark</button>` : ''}<button class="btn ghost" data-action="close-modal">Close</button>`);
+}
+/* Strict alphabetical layout by MAIN Pokémon. Each letter starts on a fresh page behind a letter pocket.
+   Stacked species take one pocket; on-display species one pocket per copy; own-pages species start a
+   fresh page (with a name pocket), run one pocket per copy, then the next thing starts a fresh page. */
 function computeExtrasLayout(list, extraMap){
   const rows = [];
-  let pocket = 0, page = 1, lastLetter = null;
+  let pocket = 0, page = 1, lastLetter = null, onlyLetterOnPage = false;
   function place(row){
     pocket++;
     if(pocket>9){ pocket=1; page++; }
@@ -3814,30 +3888,59 @@ function computeExtrasLayout(list, extraMap){
     if(pocket!==0){ pocket=0; page++; }
   }
   for(const s of list){
-    const letter = extrasLetterOf(s.name);
+    const letter = extrasLetterOf(extrasMainName(s));
+    const mode = extrasModeOf(s.name);
+    const copies = extraMap.get(s.name) || [];
     if(letter !== lastLetter){
       forceNewPage();
-      place({type:'label', display:letter});
+      place({type:'label', labelLevel:'LETTER', display:letter});
       lastLetter = letter;
+      onlyLetterOnPage = true;
     }
-    const copies = extraMap.get(s.name) || [];
-    copies.forEach((copy, i) => {
-      place({type:'POKÉMON', species:s, copyIndex:i+1, copyTotal:copies.length, cardInfo:copy});
-    });
+    if(mode === 'pages'){
+      if(!onlyLetterOnPage) forceNewPage();
+      place({type:'label', labelLevel:'OWN PAGES', display:s.name});
+      copies.forEach((copy, i) => place({type:'POKÉMON', species:s, mode, copyIndex:i+1, copyTotal:copies.length, cardInfo:copy, copies:[copy]}));
+      forceNewPage();
+      onlyLetterOnPage = false;
+      continue;
+    }
+    onlyLetterOnPage = false;
+    if(mode === 'stack'){
+      place({type:'POKÉMON', species:s, mode, stacked:true, copyIndex:1, copyTotal:copies.length, cardInfo:copies[0], copies:copies.slice()});
+    } else {
+      copies.forEach((copy, i) => place({type:'POKÉMON', species:s, mode, copyIndex:i+1, copyTotal:copies.length, cardInfo:copy, copies:[copy]}));
+    }
   }
   return rows;
 }
+// 'new' beats 'update' when a pocket holds several copies (stacked).
+function extrasRowStatus(row, status){
+  if(!status || !row.copies) return null;
+  let out = null;
+  row.copies.forEach(c => { const st = status.get(c.cardId); if(st === 'new') out = 'new'; else if(st && !out) out = st; });
+  return out;
+}
 
-let extrasFilter = { q:'' };
+let extrasFilter = { q:'', mode:'' };
 let extrasPage = 1;
 function renderExtras(){
   const extraMap = extrasBySpecies();
   let list = SPECIES.filter(s => extraMap.has(s.name));
+  const allExtraSpecies = list.slice();
   if(extrasFilter.q){
     const q = norm(extrasFilter.q);
     list = list.filter(s => norm(s.name).includes(q));
   }
-  list = list.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const modeCounts = { '':0, stack:0, display:0, pages:0 };
+  allExtraSpecies.forEach(s => modeCounts[extrasModeOf(s.name)]++);
+  if(extrasFilter.mode === 'unmarked') list = list.filter(s => !extrasModeOf(s.name));
+  else if(extrasFilter.mode) list = list.filter(s => extrasModeOf(s.name) === extrasFilter.mode);
+  // A-Z by the main Pokémon (so Alolan Meowth sits with the M's, right after Meowth).
+  list = list.slice().sort((a,b) => {
+    const ka = extrasMainName(a), kb = extrasMainName(b);
+    return ka.localeCompare(kb) || ((a.variant?1:0) - (b.variant?1:0)) || a.name.localeCompare(b.name);
+  });
 
   const rows = computeExtrasLayout(list, extraMap);
   const totalPages = rows.length ? rows[rows.length-1].page : 1;
@@ -3847,37 +3950,49 @@ function renderExtras(){
 
   const totalExtraCopies = Array.from(extraMap.values()).reduce((a,arr)=>a+arr.length,0);
   const hlStatus = binderHlCardStatus();
+  const mchip = (val, label, n) => `<button class="chip ${(extrasFilter.mode||'')===val?'active':''}" data-action="extras-filter-mode" data-value="${val}">${label} (${fmtInt(n)})</button>`;
 
   return `
     <div class="pagehead">
-      <div><h1>Extras Binder</h1><div class="sub">${fmtInt(totalExtraCopies)} extra cards across ${fmtInt(list.length)} species · alphabetical, one slot per copy · duplicates &amp; copies not used as your main binder pick</div></div>
+      <div><h1>Extras Binder</h1><div class="sub">${fmtInt(totalExtraCopies)} extra cards across ${fmtInt(allExtraSpecies.length)} species · alphabetical by main Pokémon · duplicates &amp; copies not used as your main binder pick</div></div>
     </div>
     <div class="toolbar">
       <div class="searchbar">${ICONS.search}<input type="search" id="extrasSearch" placeholder="Filter extras by Pokémon name…" value="${esc(extrasFilter.q)}"></div>
     </div>
-    ${list.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>No extras yet</h3><p>Copies you own beyond your binder pick — or cards for a species that isn't your pick — show up here automatically.</p></div>` : `
-    <div class="binder-toolbar">
-      <button class="btn" id="extrasPrev" ${extrasPage<=1?'disabled':''}>${ICONS.left} Prev</button>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <span class="binder-pagelabel">Page ${extrasPage} of ${totalPages}</span>
-        <div class="pager"><input type="number" id="extrasJump" min="1" max="${totalPages}" value="${extrasPage}"><button class="btn sm" id="extrasGo">Go</button></div>
-      </div>
-      <button class="btn" id="extrasNext" ${extrasPage>=totalPages?'disabled':''}>Next ${ICONS.right}</button>
-    </div>
+    ${allExtraSpecies.length ? `<div class="import-controls"><div class="import-controls-row" style="flex-wrap:wrap;"><span class="import-controls-label">Show</span>${mchip('', 'All', allExtraSpecies.length)}${mchip('unmarked','Not marked yet', modeCounts[''])}${mchip('stack','▤ Stacked', modeCounts.stack)}${mchip('display','▦ On display', modeCounts.display)}${mchip('pages','▭ Own pages', modeCounts.pages)}</div></div>` : ''}
+    ${list.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>${allExtraSpecies.length ? 'Nothing matches' : 'No extras yet'}</h3><p>${allExtraSpecies.length ? 'Try a different filter.' : 'Copies you own beyond your binder pick — or cards for a species that isn\'t your pick — show up here automatically.'}</p></div>` : `
     ${extrasHighlightPanelHTML(rows, hlStatus)}
+    ${binderNavHTML('ex', extrasPage, totalPages)}
     <div class="binder-page"><div class="binder-grid">${pageCells.map(c=>renderExtraPocket(c, hlStatus)).join('')}</div></div>
+    ${binderNavHTML('ex', extrasPage, totalPages, true)}
     `}
   `;
 }
 function renderExtraPocket(cell, hlStatus){
   if(!cell) return `<div class="pocket empty"></div>`;
   if(cell.type === 'label'){
-    return `<div class="pocket label"><div class="lv">LETTER</div><div class="nm">${esc(cell.display)}</div></div>`;
+    return `<div class="pocket label"><div class="lv">${esc(cell.labelLevel||'LETTER')}</div><div class="nm">${esc(cell.display)}</div></div>`;
   }
   const s = cell.species;
   const taxLabel = taxBreadcrumb(s);
   const fromName = evolvesFrom(s);
-  const mark = hlStatus && cell.cardInfo ? hlStatus.get(cell.cardInfo.cardId) : null;
+  const mark = extrasRowStatus(cell, hlStatus);
+  const info = cell.cardInfo;
+  const lineOf = c => [c.set, c.cardNumber ? '#'+c.cardNumber : ''].filter(Boolean).join(' · ');
+  const mode = cell.mode || '';
+  const modeBtn = `<button class="chip sm xmode" data-action="extras-mode" data-species="${esc(s.name)}" title="How do you keep this Pokémon's extras? Tap to mark it.">${mode ? EXTRAS_MODE_INFO[mode].icon+' '+EXTRAS_MODE_INFO[mode].short : '＋ Mark'}</button>`;
+  let countBadge;
+  if(cell.stacked) countBadge = `<span class="badge dup">×${cell.copyTotal} stacked</span>`;
+  else if(cell.copyTotal>1) countBadge = `<span class="badge dup">Copy ${cell.copyIndex} of ${cell.copyTotal}</span>`;
+  else countBadge = `<span class="badge dup">Extra copy</span>`;
+  let cardLines = '';
+  if(cell.stacked){
+    const lines = cell.copies.map(lineOf).filter(Boolean);
+    const shown = lines.slice(0,3).map(l => `<div class="extras-cardinfo">${esc(l)}</div>`).join('');
+    cardLines = shown + (lines.length>3 ? `<div class="extras-cardinfo">+${lines.length-3} more</div>` : '');
+  } else if(info && (info.set || info.cardNumber)){
+    cardLines = `<div class="extras-cardinfo">${esc(lineOf(info))}</div>`;
+  }
   return `
     <div class="pocket owned ${mark ? 'hl-'+mark : ''}" data-nav-species="${esc(s.name)}">
       ${mark ? `<span class="hl-badge hl-badge-${mark}" title="${mark==='new' ? 'New copy from a recent import: add it to the extras binder' : 'Updated by a recent import (quantity or date changed)'}">${mark==='new' ? '✦ NEW' : '↻ UPDATED'}</span>` : ''}
@@ -3892,9 +4007,9 @@ function renderExtraPocket(cell, hlStatus){
           ${taxLabel ? `<div class="taxmini">${esc(taxLabel)}</div>` : ''}
           ${fromName ? `<div class="evomini">Evolves from ${esc(fromName)}</div>` : ''}
         </div>
-        <div class="foot">
-          ${cell.copyTotal>1 ? `<span class="badge dup">Copy ${cell.copyIndex} of ${cell.copyTotal}</span>` : `<span class="badge dup">Extra copy</span>`}
-          ${cell.cardInfo && (cell.cardInfo.set || cell.cardInfo.cardNumber) ? `<div class="extras-cardinfo">${esc(cell.cardInfo.set||'')}${cell.cardInfo.set && cell.cardInfo.cardNumber ? ' · ' : ''}${cell.cardInfo.cardNumber ? '#'+esc(cell.cardInfo.cardNumber) : ''}</div>` : ''}
+        <div class="foot" style="flex-direction:column;align-items:stretch;gap:3px;">
+          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">${countBadge}${modeBtn}</div>
+          ${cardLines}
         </div>
       </div>
     </div>`;
