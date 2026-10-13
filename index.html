@@ -4328,23 +4328,25 @@ function cbShift(b, itemId, dir){
   cbSave(); render();
 }
 function cbMoveToSlot(b, itemId, page, pocket){
-  const pages = cbLayout(b), per = cbPer(b);
+  const per = cbPer(b);
+  const from = b.items.findIndex(x => x.id === itemId); if(from < 0) return;
+  const it = b.items[from];
+  // lift it out first (keeping the pages around its old home intact), then drop it into the slot asked for
+  const before = JSON.stringify(b.items.map(x => x.id));
+  if(it.newPage && b.items[from+1] && !b.items[from+1].newPage) b.items[from+1].newPage = true;
+  b.items.splice(from, 1);
+  it.newPage = false;
+  const pages = cbLayout(b);
   page = Math.max(1, Math.min(pages.length, page||1));
   pocket = Math.max(1, Math.min(per, pocket||1));
   const cells = pages[page-1];
-  const from = b.items.findIndex(x => x.id === itemId); if(from < 0) return;
-  const it = b.items[from];
-  let T = pocket-1 < cells.length ? cells[pocket-1].idx : (cells.length ? cells[cells.length-1].idx + 1 : b.items.length);
-  const target = pocket-1 < cells.length ? b.items[T] : null;
-  if(T === from || (T === from + 1 && !target)) return;
-  // keep the pages around its old home intact
-  if(it.newPage && b.items[from+1] && !b.items[from+1].newPage) b.items[from+1].newPage = true;
-  b.items.splice(from, 1);
-  if(from < T) T--;
+  let T, target = null;
+  if(pocket-1 < cells.length){ T = cells[pocket-1].idx; target = b.items[T]; }
+  else T = cells.length ? cells[cells.length-1].idx + 1 : b.items.length;
   // take over a "fresh page" mark if we land on the first pocket of a page
-  it.newPage = false;
-  if(target && target.newPage && target !== it){ it.newPage = true; target.newPage = false; }
+  if(target && target.newPage){ it.newPage = true; target.newPage = false; }
   b.items.splice(T, 0, it);
+  if(JSON.stringify(b.items.map(x => x.id)) === before && !it.newPage){ /* same spot: nothing to do */ }
   cbSave(); render();
 }
 function openMoveToModal(b, itemId){
