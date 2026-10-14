@@ -140,13 +140,12 @@ button{font-family:inherit;}
 .btn{
   display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:var(--radius-sm);
   border:1px solid var(--line-strong);background:var(--paper-raised);color:var(--ink);cursor:pointer;
-  font-size:13.5px;font-weight:500;white-space:nowrap;
+  font-size:13.5px;font-weight:500;white-space:normal;line-height:1.3;max-width:100%;
 }
 .btn:hover{border-color:var(--ink-soft);}
 .btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink);}
-.btn.primary:hover{background:#000;}
+.btn.primary:hover,.btn.accent:hover{opacity:.88;}
 .btn.accent{background:var(--ink);color:var(--paper);border-color:var(--ink);}
-.btn.accent:hover{background:#8a2f2f;}
 .btn.ghost{background:transparent;border-color:transparent;}
 .btn.ghost:hover{background:var(--paper-sunken);}
 .btn.sm{padding:5px 10px;font-size:12px;}
@@ -648,6 +647,21 @@ a.btn, a.btn:hover{text-decoration:none;}
   .tx-row > .tx-count{grid-area:count;}
   .tx-row > .tx-actions{grid-area:act;}
 }
+.modal-body{overflow-wrap:anywhere;}
+.modal-body .btn,.xmode-pick{white-space:normal;height:auto;text-align:left;}
+.xmode-pick span{display:block;margin-top:3px;white-space:normal;overflow-wrap:anywhere;line-height:1.35;}
+.xmode-pick b{white-space:normal;}
+.modal-foot{flex-wrap:wrap;}
+.boxico svg{width:15px;height:15px;vertical-align:-3px;}
+.xmode-pick b .boxico svg{width:16px;height:16px;}
+.box-note{padding:10px 14px;margin:0 0 12px;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;font-size:13px;}
+.box-letter{font-family:var(--font-display);font-weight:700;font-size:15px;margin:14px 2px 6px;color:var(--ink-soft);}
+.boxlist{display:flex;flex-direction:column;gap:8px;}
+.boxrow{display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper-raised);cursor:pointer;}
+.boxrow-art{width:44px;height:44px;flex-shrink:0;border-radius:var(--radius-sm);overflow:hidden;}
+.boxrow-info{flex:1;min-width:0;}
+.boxrow-sub{font-size:12px;color:var(--ink-soft);overflow-wrap:anywhere;}
+.badge.new-b{background:#f4e7cd;color:var(--brass);}
 </style>
 </head>
 <body>
@@ -2476,6 +2490,15 @@ document.addEventListener('click', (e) => {
   if(exModeBtn){ openExtrasModeModal(exModeBtn.dataset.species); return; }
   const exModePick = e.target.closest('[data-action="extras-mode-set"]');
   if(exModePick){ applyExtrasMode(exModePick.dataset.species, exModePick.dataset.mode, !!($('#exModeFamily') && $('#exModeFamily').checked)); return; }
+  const exDefault = e.target.closest('[data-action="extras-default"]');
+  if(exDefault){
+    STATE.settings.extrasDefault = exDefault.dataset.value === 'box' ? 'box' : 'binder';
+    persist('settings'); extrasPage = 1;
+    toast(STATE.settings.extrasDefault === 'box' ? 'Not-marked extras now go in the box.' : 'Not-marked extras now go in the binder.');
+    render(); return;
+  }
+  const exBoxCopy = e.target.closest('[data-action="extras-box-copy"]');
+  if(exBoxCopy){ copyBoxList(); return; }
   const exFilterBtn = e.target.closest('[data-action="extras-filter-mode"]');
   if(exFilterBtn){ extrasFilter.mode = exFilterBtn.dataset.value || ''; extrasPage = 1; render(); return; }
   const decideOpen = e.target.closest('[data-action="binder-decide"]');
@@ -5409,6 +5432,17 @@ function extrasBySpecies(){
   return map;
 }
 /* The "main" Pokémon a form belongs to: Alolan Meowth files under Meowth (M), Mega Delphox under Delphox (D). */
+function copyBoxList(){
+  const em = extrasBySpecies();
+  const list = SPECIES.filter(sp => em.has(sp.name) && extrasInBox(sp.name)).sort((a,b) => extrasMainName(a).localeCompare(extrasMainName(b)) || ((a.variant?1:0)-(b.variant?1:0)) || a.name.localeCompare(b.name));
+  const text = 'Box contents\n' + list.map(sp => {
+    const cs = em.get(sp.name) || []; const q = cs.reduce((x, c) => x + (c.quantity || 1), 0);
+    return `${sp.name} x${q}: ` + cs.map(c => [c.set, c.cardNumber ? '#' + c.cardNumber : ''].filter(Boolean).join(' ')).join('; ');
+  }).join('\n');
+  const done = () => toast('Box list copied.');
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => toast('Could not copy — select and copy from a backup export instead.'));
+  else toast('Copy is not available here.');
+}
 function extrasMainName(s){ return (s && (s.baseSpecies || s.name)) || ''; }
 function extrasLetterOf(name){
   const m = String(name||'').match(/[A-Za-z]/);
@@ -5421,12 +5455,19 @@ function extrasLetterOf(name){
    not marked yet behaves like 'display'. */
 function extrasModeOf(name){
   const m = STATE.settings && STATE.settings.extrasMode && STATE.settings.extrasMode[name];
-  return (m === 'stack' || m === 'display' || m === 'pages') ? m : '';
+  return (m === 'stack' || m === 'display' || m === 'pages' || m === 'box') ? m : '';
 }
+/* What actually happens to a Pokémon's extras: its own mark, or the default for unmarked ones
+   (Binder, or Box — "I'm not sure these will all go in a binder yet"). */
+function extrasEffectiveMode(name){
+  return extrasModeOf(name) || (STATE.settings && STATE.settings.extrasDefault === 'box' ? 'box' : '');
+}
+function extrasInBox(name){ return extrasEffectiveMode(name) === 'box'; }
 const EXTRAS_MODE_INFO = {
   stack:   { short:'Stacked',   icon:'▤', desc:'All copies go behind one another in a single pocket.' },
   display: { short:'On display', icon:'▦', desc:'Every copy gets its own pocket, all visible.' },
   pages:   { short:'Own pages', icon:'▭', desc:'Gets its own separate page(s), one pocket per copy.' },
+  box:     { short:'In a box',  icon:'<span class="boxico">' + ICONS.empty + '</span>', desc:'Keep these in a storage box instead of the binder. They don\u2019t take a pocket, and are listed under \u201cIn the box\u201d.' },
 };
 function applyExtrasMode(name, mode, includeForms){
   if(!STATE.settings.extrasMode) STATE.settings.extrasMode = {};
@@ -5439,7 +5480,7 @@ function applyExtrasMode(name, mode, includeForms){
   names.forEach(n => { if(mode) STATE.settings.extrasMode[n] = mode; else delete STATE.settings.extrasMode[n]; });
   persist('settings');
   closeModal();
-  toast(mode ? `${names.length>1 ? names.length+' Pokémon' : name}: ${EXTRAS_MODE_INFO[mode].short.toLowerCase()}. Page numbers may have shifted.` : 'Mark cleared.');
+  toast(mode ? `${names.length>1 ? names.length+' Pokémon' : name}: ${EXTRAS_MODE_INFO[mode].short.toLowerCase()}.${mode==='box' ? '' : ' Page numbers may have shifted.'}` : 'Mark cleared.');
   render();
 }
 function openExtrasModeModal(name){
@@ -5451,8 +5492,8 @@ function openExtrasModeModal(name){
   const n = (em.get(name)||[]).length;
   const opt = m => `<button class="btn xmode-pick ${cur===m?'on':''}" data-action="extras-mode-set" data-species="${esc(name)}" data-mode="${m}"><b>${EXTRAS_MODE_INFO[m].icon} ${EXTRAS_MODE_INFO[m].short}${cur===m?' ✓':''}</b><span>${EXTRAS_MODE_INFO[m].desc}</span></button>`;
   openModal(`${name} — extras`, `
-    <p style="font-size:13px;margin:0 0 10px;">${fmtInt(n)} extra cop${n===1?'y':'ies'}. How do you want to keep ${n===1?'it':'them'} in the extras binder?</p>
-    ${opt('stack')}${opt('display')}${opt('pages')}
+    <p style="font-size:13px;margin:0 0 10px;">${fmtInt(n)} extra cop${n===1?'y':'ies'}. How do you want to keep ${n===1?'it':'them'}?</p>
+    ${opt('stack')}${opt('display')}${opt('pages')}${opt('box')}
     ${others.length ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:6px;"><input type="checkbox" id="exModeFamily"> Also apply to ${others.map(o=>esc(o.name)).join(', ')}</label>` : ''}
   `, `${cur ? `<button class="btn ghost" data-action="extras-mode-set" data-species="${esc(name)}" data-mode="">Clear mark</button>` : ''}<button class="btn ghost" data-action="close-modal">Close</button>`);
 }
@@ -5508,6 +5549,32 @@ function extrasRowStatus(row, status){
 
 let extrasFilter = { q:'', mode:'' };
 let extrasPage = 1;
+function extrasBoxViewHTML(list, extraMap, hlStatus){
+  const rows = list.map(s => ({ s, copies: extraMap.get(s.name) || [] }));
+  const nCards = rows.reduce((a, r) => a + r.copies.reduce((x, c) => x + (c.quantity || 1), 0), 0);
+  let lastLetter = null;
+  const body = rows.map(({ s, copies }) => {
+    const letter = extrasLetterOf(extrasMainName(s));
+    const head = letter !== lastLetter ? (lastLetter = letter, `<div class="box-letter">${esc(letter)}</div>`) : '';
+    const qty = copies.reduce((x, c) => x + (c.quantity || 1), 0);
+    const lines = copies.map(c => [c.set, c.cardNumber ? '#' + c.cardNumber : '', c.variance].filter(Boolean).join(' · ')).filter(Boolean);
+    const isNew = copies.some(c => hlStatus && hlStatus.get(c.cardId) === 'new');
+    const isMarked = !!extrasModeOf(s.name);
+    return head + `<div class="boxrow" data-nav-species="${esc(s.name)}">
+      <div class="boxrow-art">${speciesImgTag(s, 'cardrow-img')}</div>
+      <div class="boxrow-info">
+        <div style="font-family:var(--font-display);font-weight:600;">${esc(s.name)} ${isNew ? '<span class="badge new-b">✦ NEW</span>' : ''}</div>
+        <div class="boxrow-sub">${fmtInt(qty)} cop${qty===1?'y':'ies'}${lines.length ? ' · ' + esc(lines.slice(0, 3).join('  |  ')) + (lines.length > 3 ? ` (+${lines.length - 3} more)` : '') : ''}</div>
+      </div>
+      <button class="chip sm xmode" data-action="extras-mode" data-species="${esc(s.name)}" aria-label="${esc(s.name)} extras: in a box${isMarked ? '' : ' (default)'}. Tap to change.">${EXTRAS_MODE_INFO.box.icon}<span class="xl"> ${isMarked ? 'In a box' : 'Box (default)'}</span></button>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;">
+      <div><strong>In the box</strong> — ${fmtInt(rows.length)} Pokémon · ${fmtInt(nCards)} card${nCards===1?'':'s'}<div style="font-size:12px;color:var(--ink-soft);">Not in the binder. Tap a row for the Pokémon, or the tag to change how it's kept.</div></div>
+      <button class="btn sm" data-action="extras-box-copy">Copy list</button>
+    </div>
+    <div class="boxlist">${body}</div>`;
+}
 function renderExtras(){
   const extraMap = extrasBySpecies();
   let list = SPECIES.filter(s => extraMap.has(s.name));
@@ -5516,17 +5583,23 @@ function renderExtras(){
     const q = norm(extrasFilter.q);
     list = list.filter(s => norm(s.name).includes(q));
   }
-  const modeCounts = { '':0, stack:0, display:0, pages:0 };
-  allExtraSpecies.forEach(s => modeCounts[extrasModeOf(s.name)]++);
-  if(extrasFilter.mode === 'unmarked') list = list.filter(s => !extrasModeOf(s.name));
-  else if(extrasFilter.mode) list = list.filter(s => extrasModeOf(s.name) === extrasFilter.mode);
+  const modeCounts = { '':0, stack:0, display:0, pages:0, box:0 };
+  allExtraSpecies.forEach(s => { modeCounts[extrasModeOf(s.name)]++; });
+  const boxCount = allExtraSpecies.filter(s => extrasInBox(s.name)).length;
+  const defaultBox = STATE.settings.extrasDefault === 'box';
+  const fm = extrasFilter.mode;
+  if(fm === 'unmarked') list = list.filter(s => !extrasModeOf(s.name));
+  else if(fm === 'box') list = list.filter(s => extrasInBox(s.name));
+  else if(fm) list = list.filter(s => extrasModeOf(s.name) === fm);
+  const showBox = fm === 'box' || (fm === 'unmarked' && defaultBox);
   // A-Z by the main Pokémon (so Alolan Meowth sits with the M's, right after Meowth).
   list = list.slice().sort((a,b) => {
     const ka = extrasMainName(a), kb = extrasMainName(b);
     return ka.localeCompare(kb) || ((a.variant?1:0) - (b.variant?1:0)) || a.name.localeCompare(b.name);
   });
-
-  const rows = computeExtrasLayout(list, extraMap);
+  const binderList = showBox ? [] : list.filter(s => !extrasInBox(s.name));
+  const boxList = showBox ? list : [];
+  const rows = computeExtrasLayout(binderList, extraMap);
   const totalPages = rows.length ? rows[rows.length-1].page : 1;
   extrasPage = Math.max(1, Math.min(totalPages, extrasPage||1));
   const pageCells = rows.filter(r=>r.page===extrasPage).sort((a,b)=>a.pocket-b.pocket);
@@ -5535,7 +5608,18 @@ function renderExtras(){
   const totalExtraCopies = Array.from(extraMap.values()).reduce((a,arr)=>a+arr.length,0);
   const hlStatus = binderHlCardStatus();
   const mchip = (val, label, n) => `<button class="chip ${(extrasFilter.mode||'')===val?'active':''}" data-action="extras-filter-mode" data-value="${val}">${label} (${fmtInt(n)})</button>`;
-
+  const boxedCards = allExtraSpecies.filter(s => extrasInBox(s.name)).reduce((a, s) => a + (extraMap.get(s.name) || []).length, 0);
+  const boxNewCards = hlStatus ? allExtraSpecies.filter(s => extrasInBox(s.name)).reduce((a, s) => a + (extraMap.get(s.name) || []).filter(c => hlStatus.get(c.cardId) === 'new').length, 0) : 0;
+  const emptyMsg = allExtraSpecies.length ? 'Nothing matches' : 'No extras yet';
+  const viewHTML = showBox
+    ? (boxList.length ? extrasBoxViewHTML(boxList, extraMap, hlStatus) : `<div class="emptystate card">${ICONS.empty}<h3>The box is empty</h3><p>Mark a Pokémon “In a box” (tap the tag on its pocket), or set unmarked extras to go in the box above.</p></div>`)
+    : (binderList.length === 0
+      ? `<div class="emptystate card">${ICONS.empty}<h3>${boxCount && !fm ? 'Everything is in the box' : emptyMsg}</h3><p>${boxCount && !fm ? 'No extras are set to go in the binder right now.' : (allExtraSpecies.length ? 'Try a different filter.' : 'Copies you own beyond your binder pick — or cards for a species that isn\'t your pick — show up here automatically.')}</p></div>`
+      : `${extrasHighlightPanelHTML(rows, hlStatus)}
+    ${binderNavHTML('ex', extrasPage, totalPages)}
+    <div class="binder-page"><div class="binder-grid extras-grid">${pageCells.map(c=>renderExtraPocket(c, hlStatus)).join('')}</div></div>
+    ${binderNavHTML('ex', extrasPage, totalPages, true)}`);
+  const boxNote = (!showBox && boxCount) ? `<div class="card box-note"><div>${EXTRAS_MODE_INFO.box.icon} <strong>${fmtInt(boxCount)} Pokémon (${fmtInt(boxedCards)} cop${boxedCards===1?'y':'ies'}) are in the box</strong>, not in the binder${boxNewCards ? ` · <strong>${fmtInt(boxNewCards)} new</strong>` : ''}.</div><button class="btn sm" data-action="extras-filter-mode" data-value="box">Open the box</button></div>` : '';
   return `
     <div class="pagehead">
       <div><h1>Extras Binder</h1><div class="sub">${fmtInt(totalExtraCopies)} extra cards across ${fmtInt(allExtraSpecies.length)} species · alphabetical by main Pokémon · duplicates &amp; copies not used as your main binder pick</div></div>
@@ -5543,13 +5627,12 @@ function renderExtras(){
     <div class="toolbar">
       <div class="searchbar">${ICONS.search}<input type="search" id="extrasSearch" placeholder="Filter extras by Pokémon name…" value="${esc(extrasFilter.q)}"></div>
     </div>
-    ${allExtraSpecies.length ? `<div class="import-controls"><div class="import-controls-row" style="flex-wrap:wrap;"><span class="import-controls-label">Show</span>${mchip('', 'All', allExtraSpecies.length)}${mchip('unmarked','Not marked yet', modeCounts[''])}${mchip('stack','▤ Stacked', modeCounts.stack)}${mchip('display','▦ On display', modeCounts.display)}${mchip('pages','▭ Own pages', modeCounts.pages)}</div></div>` : ''}
-    ${list.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>${allExtraSpecies.length ? 'Nothing matches' : 'No extras yet'}</h3><p>${allExtraSpecies.length ? 'Try a different filter.' : 'Copies you own beyond your binder pick — or cards for a species that isn\'t your pick — show up here automatically.'}</p></div>` : `
-    ${extrasHighlightPanelHTML(rows, hlStatus)}
-    ${binderNavHTML('ex', extrasPage, totalPages)}
-    <div class="binder-page"><div class="binder-grid extras-grid">${pageCells.map(c=>renderExtraPocket(c, hlStatus)).join('')}</div></div>
-    ${binderNavHTML('ex', extrasPage, totalPages, true)}
-    `}
+    ${allExtraSpecies.length ? `<div class="import-controls"><div class="import-controls-row" style="flex-wrap:wrap;"><span class="import-controls-label">Show</span>${mchip('', 'All', allExtraSpecies.length)}${mchip('unmarked','Not marked yet', modeCounts[''])}${mchip('stack','▤ Stacked', modeCounts.stack)}${mchip('display','▦ On display', modeCounts.display)}${mchip('pages','▭ Own pages', modeCounts.pages)}${mchip('box','In the box', boxCount)}</div>
+      <div class="import-controls-row" style="flex-wrap:wrap;margin-top:6px;"><span class="import-controls-label">Not marked yet go in</span>
+        <button class="chip ${!defaultBox?'active':''}" data-action="extras-default" data-value="binder" aria-pressed="${!defaultBox}">The binder</button>
+        <button class="chip ${defaultBox?'active':''}" data-action="extras-default" data-value="box" aria-pressed="${defaultBox}">The box</button></div></div>` : ''}
+    ${boxNote}
+    ${viewHTML}
   `;
 }
 function renderExtraPocket(cell, hlStatus){
