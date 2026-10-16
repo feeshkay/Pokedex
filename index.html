@@ -728,6 +728,8 @@ const DEFAULT_SUBCATEGORY_ORDER = JSON.parse(JSON.stringify(SUBCATEGORY_ORDER));
 // version is upgraded on load — see the merge logic near STATE.taxonomy below —
 // instead of silently shadowing the new built-ins forever.
 const TAXONOMY_SCHEMA_VERSION = 2;
+// Marker meaning "no subcategory": the Pokémon is filed directly in its category.
+const NO_SUB = '—';
 
 // Groups a list of species by evolution family, orders the families A-Z by the
 // name of each family's final evolution (type is NOT used), and orders each
@@ -791,7 +793,7 @@ function computeBinderLayout(species){
   for(const group of GROUP_ORDER){
     const cats = CATEGORY_ORDER[group]||[];
     for(const category of cats){
-      const subs = SUBCATEGORY_ORDER[category]||[category];
+      const subs = [NO_SUB].concat(SUBCATEGORY_ORDER[category]||[category]);   // cards filed straight in the category come first
       for(const subcategory of subs){
         const path = [group,category,subcategory].join('||');
         if(!byPath.has(path)) continue;
@@ -806,7 +808,7 @@ function computeBinderLayout(species){
         if(category!==lastCat || group!==lastGroup){
           place({type:'CATEGORY LABEL',labelLevel:'CATEGORY',display:category,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CATEGORY::'+category,taxBreak: group!==lastGroup ? null : 'NEW CATEGORY'});
         }
-        place({type:'SUBCATEGORY LABEL',labelLevel:'SUBCATEGORY',display:subcategory,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'SUBCATEGORY::'+subcategory,taxBreak:null});
+        if(subcategory!==NO_SUB) place({type:'SUBCATEGORY LABEL',labelLevel:'SUBCATEGORY',display:subcategory,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'SUBCATEGORY::'+subcategory,taxBreak:null});
         for(const s of list){
           place({type:'POKÉMON',labelLevel:null,display:s.name,dex:s.dex,group,category,subcategory,evoFamily:s.evoFamily,evoOrder:s.evoOrder});
         }
@@ -981,7 +983,7 @@ function restorePlacement(name, idx){
   const sp = speciesByName.get(name); if(!sp) return;
   const e = ((STATE.settings.placementLog || {})[sp.id] || [])[idx]; if(!e) return;
   const g = e.from.g, c = e.from.c, sub = e.from.s;
-  const okG = GROUP_ORDER.includes(g), okC = okG && (CATEGORY_ORDER[g] || []).includes(c), okS = okC && (SUBCATEGORY_ORDER[c] || []).includes(sub);
+  const okG = GROUP_ORDER.includes(g), okC = okG && (CATEGORY_ORDER[g] || []).includes(c), okS = okC && (sub === NO_SUB || (SUBCATEGORY_ORDER[c] || []).includes(sub));
   if(!okS){ toast('That section no longer exists. Use Edit category to pick a new spot.'); return; }
   Object.assign(sp, { group:g, category:c, subcategory:sub });
   const base = ORIGINAL_PLACEMENT.get(sp.id);
@@ -3215,7 +3217,7 @@ function openAddSpeciesModal(prefill){
     const cats = CATEGORY_ORDER[state.group] || [];
     if(!cats.includes(state.category)) state.category = '';
     const subs = state.category ? (SUBCATEGORY_ORDER[state.category] || [state.category]) : [];
-    if(!subs.includes(state.subcategory)) state.subcategory = '';
+    if(state.subcategory !== NO_SUB && !subs.includes(state.subcategory)) state.subcategory = '';
     const b = baseSp();
     const famName = b ? (b.evoFamily || b.name) : '';
     const forms = state.form && !FORM_LABELS.includes(state.form) ? [state.form].concat(FORM_LABELS) : FORM_LABELS;
@@ -3257,7 +3259,7 @@ function openAddSpeciesModal(prefill){
         <select id="newSpCategory" ${!state.group?'disabled':''}><option value="">— choose —</option>${cats.map(c=>`<option value="${esc(c)}" ${state.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
       </div>
       <div class="field"><label>Subcategory</label>
-        <select id="newSpSubcategory" ${!state.category?'disabled':''}><option value="">— choose —</option>${subs.map(s=>`<option value="${esc(s)}" ${state.subcategory===s?'selected':''}>${esc(s)}</option>`).join('')}</select>
+        <select id="newSpSubcategory" ${!state.category?'disabled':''}><option value="">— choose —</option><option value="${NO_SUB}" ${state.subcategory===NO_SUB?'selected':''}>No subcategory — file directly in the category</option>${subs.map(s=>`<option value="${esc(s)}" ${state.subcategory===s?'selected':''}>${esc(s)}</option>`).join('')}</select>
       </div>
       <p style="font-size:12px;color:var(--ink-soft);margin-top:6px;">It gets its own pocket in the binder, placed with its evolution line inside the category you choose.</p>
     `;
@@ -3771,11 +3773,12 @@ function renderSpeciesDetail(args){
 function taxLevelKey(level){ return ['group','category','subcategory'][level]; }
 
 function renderTaxonomy(args){
-  const path = args.map(a=>decodeURIComponent(a)).filter(a=>a && a!=='—');
+  const path = args.map(a=>decodeURIComponent(a)).filter(a=>a);
+  const taxLabel = v => v === NO_SUB ? 'Filed directly in “' + (path[1] || 'this category') + '”' : v;
   const level = path.length; // 0=groups,1=categories,2=subcategories,3=species list
 
   const crumbs = `<div class="crumbs"><span class="c" data-nav="taxonomy">Taxonomy</span>` +
-    path.map((p,i)=>` <span>›</span> <span class="c" data-nav-taxonomy="${path.slice(0,i+1).map(encodeURIComponent).join('/')}">${esc(p)}</span>`).join('') + `</div>`;
+    path.map((p,i)=>` <span>›</span> <span class="c" data-nav-taxonomy="${path.slice(0,i+1).map(encodeURIComponent).join('/')}">${esc(taxLabel(p))}</span>`).join('') + `</div>`;
 
   if(level >= 3 || (level>0 && !hasDeeperLevel(path))){
     // species list at this taxonomy node
@@ -3783,7 +3786,7 @@ function renderTaxonomy(args){
     const owned = filtered.filter(s=>isOwned(s.name)).length;
     return `
       ${crumbs}
-      <div class="pagehead"><h1>${esc(path[path.length-1] || 'All species')}</h1></div>
+      <div class="pagehead"><h1>${esc(taxLabel(path[path.length-1]) || 'All species')}</h1></div>
       <div class="panel" style="margin-bottom:18px;display:flex;gap:24px;flex-wrap:wrap;">
         <div><div class="num" style="font-family:var(--font-display);font-size:20px;">${owned} / ${filtered.length}</div><div class="label" style="font-size:11px;color:var(--ink-soft);">species owned</div></div>
         <div><div class="num" style="font-family:var(--font-display);font-size:20px;">${fmtPct(filtered.length?owned/filtered.length*100:0)}</div><div class="label" style="font-size:11px;color:var(--ink-soft);">completion</div></div>
@@ -3794,10 +3797,10 @@ function renderTaxonomy(args){
 
   // group/category/subcategory listing
   const key = taxLevelKey(level);
-  const children = Array.from(new Set(SPECIES.filter(s=>matchesPath(s,path)).map(s=>s[key]))).filter(v=>v).sort();
+  const children = Array.from(new Set(SPECIES.filter(s=>matchesPath(s,path)).map(s=>s[key]))).filter(v=>v).sort((a,b)=> a===NO_SUB ? -1 : b===NO_SUB ? 1 : a.localeCompare(b));
   return `
     ${crumbs}
-    <div class="pagehead"><h1>${level===0?'Taxonomy':esc(path[path.length-1])}</h1><div class="sub">${level===0?'Browse the collection by taxonomy':'Drill down'}</div></div>
+    <div class="pagehead"><h1>${level===0?'Taxonomy':esc(taxLabel(path[path.length-1]))}</h1><div class="sub">${level===0?'Browse the collection by taxonomy':'Drill down'}</div></div>
     <div class="taxlist">
       ${children.map(childVal => {
         const childPath = [...path, childVal];
@@ -3806,7 +3809,7 @@ function renderTaxonomy(args){
         const pct = inGroup.length ? owned/inGroup.length*100 : 0;
         return `
         <div class="taxrow" data-nav-taxonomy="${childPath.map(encodeURIComponent).join('/')}">
-          <div class="nm">${esc(childVal)}</div>
+          <div class="nm">${esc(taxLabel(childVal))}</div>
           <div class="stats">
             <span>${owned} / ${inGroup.length}</span>
             <span class="barbg"><span class="barfg" style="width:${pct}%;"></span></span>
@@ -4050,7 +4053,7 @@ function speciesInSection(level, g, c, s){
   return SPECIES.filter(x => x.category === c && x.subcategory === s);
 }
 function taxPathValid(sp){
-  return GROUP_ORDER.includes(sp.group) && (CATEGORY_ORDER[sp.group]||[]).includes(sp.category) && subsOf(sp.category).includes(sp.subcategory);
+  return GROUP_ORDER.includes(sp.group) && (CATEGORY_ORDER[sp.group]||[]).includes(sp.category) && (sp.subcategory === NO_SUB || subsOf(sp.category).includes(sp.subcategory));
 }
 function placeSpecies(list, g, c, s){
   list.forEach(sp => {
@@ -4065,7 +4068,7 @@ function ensureTaxPath(g, c, s){
   if(c && !CATEGORY_ORDER[g].includes(c) && !GROUP_ORDER.some(x => (CATEGORY_ORDER[x] || []).includes(c))) insertSorted(CATEGORY_ORDER[g], c);
   if(c){
     if(!SUBCATEGORY_ORDER[c]) SUBCATEGORY_ORDER[c] = [];
-    if(s && !SUBCATEGORY_ORDER[c].includes(s)) insertSorted(SUBCATEGORY_ORDER[c], s);
+    if(s && s !== NO_SUB && !SUBCATEGORY_ORDER[c].includes(s)) insertSorted(SUBCATEGORY_ORDER[c], s);
   }
 }
 function cleanLabelKeys(keys){
@@ -4100,7 +4103,7 @@ function openAddSectionModal(level, g, c){
   const where = level==='cat' ? ` in “${g}”` : level==='sub' ? ` in “${c}”` : '';
   openModal('Add ' + word, `
     <div class="field"><label>Name of the new ${word}${esc(where)}</label><input type="text" id="addSecName" maxlength="60"></div>
-    ${level==='cat' ? `<div class="field"><label>First subcategory (optional)</label><input type="text" id="addSecSub" maxlength="60" placeholder="Leave blank to use the category's own name"></div>` : ''}
+    ${level==='cat' ? `<div class="field"><label>First subcategory (optional)</label><input type="text" id="addSecSub" maxlength="60" placeholder="Leave blank to file Pokémon straight in the category"></div>` : ''}
     ${level==='group'
       ? `<p class="tx-hint">A new group starts empty — add a category inside it afterwards.</p>`
       : `<label class="tx-check"><input type="checkbox" id="addSecFill" checked> Pick the Pokémon to put in it next</label>`}
@@ -4117,7 +4120,7 @@ function openAddSectionModal(level, g, c){
     } else if(level === 'cat'){
       const allCats = [].concat(...GROUP_ORDER.map(x => CATEGORY_ORDER[x]||[]));
       if(allCats.some(x => x.toLowerCase()===name.toLowerCase())){ toast('A category with that name already exists — names have to be unique.'); return; }
-      const sub = (($('#addSecSub')||{}).value||'').trim() || name;
+      const sub = (($('#addSecSub')||{}).value||'').trim() || NO_SUB;
       ensureTaxPath(g, name, sub);
       target = { g, c:name, s:sub };
     } else {
@@ -4135,14 +4138,14 @@ function openAddSectionModal(level, g, c){
 }
 function openFillSection(g, c, s){
   openSpeciesPicker({
-    title: `Put Pokémon into “${s}”`,
+    title: `Put Pokémon into “${s === NO_SUB ? c : s}”`,
     note: 'Pokémon you pick are moved here from wherever they are now.',
     confirmLabel: 'Move here',
     family: true,
     onDone: (names) => {
       const list = names.map(n => speciesByName.get(n)).filter(Boolean);
       placeSpecies(list, g, c, s);
-      taxCommit(`${list.length} Pokémon moved into “${s}”.`);
+      taxCommit(`${list.length} Pokémon moved into “${s === NO_SUB ? c : s}”.`);
     },
   });
 }
@@ -4186,7 +4189,7 @@ function moveSubcategory(c, s, toG, toC, mergeInto, newName){
   placeSpecies(list, toG, toC, target);
   if(!(c === toC && s === target)) SUBCATEGORY_ORDER[c] = (SUBCATEGORY_ORDER[c]||[]).filter(x => x !== s);
   const emptied = c !== toC && !(SUBCATEGORY_ORDER[c]||[]).length && !SPECIES.some(x => x.category === c);
-  taxCommit(`“${s}” ${mergeInto ? 'merged into “'+mergeInto+'”' : 'moved to “'+toC+'”'} — ${list.length} Pokémon.` + (emptied ? ` “${c}” is now empty; delete it if you don't need it.` : ''));
+  taxCommit(`“${s}” ${mergeInto ? 'merged into “'+(mergeInto===NO_SUB ? toC : mergeInto)+'”' : 'moved to “'+toC+'”'} — ${list.length} Pokémon.` + (emptied ? ` “${c}” is now empty; delete it if you don't need it.` : ''));
 }
 function moveCategory(g, c, toG, mergeInto){
   const list = SPECIES.filter(x => x.category === c);
@@ -4217,7 +4220,7 @@ function openMoveSectionModal(level, g, c, s){
   function body(){
     const cats = CATEGORY_ORDER[st.toG] || [];
     if(isSub && !cats.includes(st.toC)) st.toC = cats[0] || '';
-    const targets = isSub ? subsOf(st.toC).filter(x => !(st.toC===c && x===s)) : cats.filter(x => x !== c);
+    const targets = isSub ? [NO_SUB].concat(subsOf(st.toC)).filter(x => !(st.toC===c && x===s) && !(s===NO_SUB && x===NO_SUB && st.toC===c)) : cats.filter(x => x !== c);
     if(st.mergeInto && !targets.includes(st.mergeInto)) st.mergeInto = '';
     const thing = isSub ? 'subcategory' : 'category';
     return `
@@ -4227,7 +4230,7 @@ function openMoveSectionModal(level, g, c, s){
         <select id="mvC">${cats.map(x => `<option value="${esc(x)}" ${x===st.toC?'selected':''}>${esc(x)}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>${isSub ? 'Subcategory' : 'Category'}</label>
         <select id="mvT"><option value="">Keep “${esc(isSub?s:c)}” as its own ${thing} there</option>
-          ${targets.map(x => `<option value="${esc(x)}" ${x===st.mergeInto?'selected':''}>Merge into “${esc(x)}”</option>`).join('')}</select></div>
+          ${targets.map(x => `<option value="${esc(x)}" ${x===st.mergeInto?'selected':''}>${x===NO_SUB ? 'Merge into the category itself (no subcategory)' : 'Merge into “'+esc(x)+'”'}</option>`).join('')}</select></div>
       ${isSub && !st.mergeInto ? `<div class="field"><label>Name</label><input type="text" id="mvName" value="${esc(st.name)}" maxlength="60"></div>` : ''}
       <p class="tx-hint">${n} Pokémon move with it. The binder reflows, so page numbers after this point may shift.</p>`;
   }
@@ -4262,8 +4265,8 @@ function taxPathFields(prefix, st, ex){
   const groups = GROUP_ORDER.filter(x => x !== ex.group);
   const cats = (CATEGORY_ORDER[st.g]||[]).filter(x => x !== ex.cat);
   const subs = st.c ? subsOf(st.c).filter(x => !(ex.sub && st.c === ex.subCat && x === ex.sub)) : [];
-  const sel = (id, label, vals, cur, dis) => `<div class="field"><label>${label}</label><select id="${prefix}${id}" ${dis?'disabled':''}><option value="">— choose —</option>${vals.map(v => `<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('')}</select></div>`;
-  return sel('G','Group',groups,st.g,false) + sel('C','Category',cats,st.c,!st.g) + sel('S','Subcategory',subs,st.s,!st.c);
+  const sel = (id, label, vals, cur, dis, noneOpt) => `<div class="field"><label>${label}</label><select id="${prefix}${id}" ${dis?'disabled':''}><option value="">— choose —</option>${noneOpt ? `<option value="${NO_SUB}" ${cur===NO_SUB?'selected':''}>No subcategory — file directly in the category</option>` : ''}${vals.map(v => `<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('')}</select></div>`;
+  return sel('G','Group',groups,st.g,false) + sel('C','Category',cats,st.c,!st.g) + sel('S','Subcategory',subs,st.s,!st.c,true);
 }
 function wireTaxPathFields(prefix, st, repaint){
   $('#'+prefix+'G')?.addEventListener('change', e => { st.g = e.target.value; st.c = ''; st.s = ''; repaint(); });
@@ -4314,7 +4317,7 @@ function openDeleteSectionModal(level, g, c, s){
       closeModal();
       placeSpecies(list, st.g, st.c, st.s);
       removeSectionFromTaxonomy(level, g, c, s);
-      taxCommit(`“${name}” deleted — ${list.length} Pokémon moved to “${st.s}”.`);
+      taxCommit(`“${name}” deleted — ${list.length} Pokémon moved to “${st.s === NO_SUB ? st.c : st.s}”.`);
     } else {
       closeModal();
       confirmAction(`Really delete ${list.length} Pokémon along with the ${word} “${name}”?`, () => {
@@ -4339,7 +4342,7 @@ function openFixOrphansModal(){
   wireTaxPathFields('fx', st, paint);
   $('#fxGo').addEventListener('click', () => {
     if(!st.g || !st.c || !st.s){ toast('Choose a group, category and subcategory.'); return; }
-    closeModal(); placeSpecies(orphans, st.g, st.c, st.s); taxCommit(`${orphans.length} Pokémon filed in “${st.s}”.`);
+    closeModal(); placeSpecies(orphans, st.g, st.c, st.s); taxCommit(`${orphans.length} Pokémon filed in “${st.s === NO_SUB ? st.c : st.s}”.`);
   });
 }
 
@@ -4354,6 +4357,14 @@ function openSectionMenu(lv, g, c, s){
   const name = lv === 'group' ? g : lv === 'cat' ? c : s;
   const word = lv === 'group' ? 'group' : lv === 'cat' ? 'category' : 'subcategory';
   const btn = (act, label, desc, cls) => `<button class="btn xmode-pick ${cls||''}" data-tax="${act}" data-level="${lv}" data-g="${esc(g||'')}" data-c="${esc(c||'')}" data-s="${esc(s||'')}"><b>${label}</b><span>${desc}</span></button>`;
+  if(lv === 'sub' && s === NO_SUB){
+    openModal('Filed directly in “' + c + '”', `
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;">Pokémon filed straight in this category, with no subcategory.</p>
+      ${btn('fill', 'Add Pokémon here…', 'Choose Pokémon to file directly in “' + esc(c) + '”.')}
+    `, `<button class="btn ghost" data-action="close-modal">Close</button>`);
+    $$('#modalOverlay [data-tax]').forEach(b => b.addEventListener('click', closeModal));
+    return;
+  }
   openModal(name, `
     <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;">This ${word}</p>
     ${btn('rename', 'Rename', 'Change its name. Everything filed in it stays put.')}
@@ -4419,6 +4430,11 @@ function renderCategoryManager(){
                     ${actions('cat', group, cat, '', ci, cats.length)}
                   </div>
                   ${cOpen ? `<div class="tx-kids">
+                    <div class="tx-row">
+                      <span class="tx-chev-sp"></span>
+                      <span class="tx-name s" style="font-style:italic;">Filed directly in “${esc(cat)}” (no subcategory)</span><span class="tx-count">${count(cnt.s.get(cat+'||'+NO_SUB))}</span>
+                      <span class="tx-actions">${ib('menu', 'sub', group, cat, NO_SUB, ICONS.more, 'Add Pokémon directly in this category')}</span>
+                    </div>
                     ${subs.map((sub, si) => `
                       <div class="tx-row">
                         <span class="tx-chev-sp"></span>
@@ -4473,10 +4489,10 @@ function openSpeciesPicker(opts){
       return true;
     }), st.order);
   }
-  const opt = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('');
+  const opt = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option value="${esc(v)}" ${v===cur?'selected':''}>${v===NO_SUB ? 'No subcategory (directly in category)' : esc(v)}</option>`).join('');
   function filtersHTML(){
     const cats = st.g ? (CATEGORY_ORDER[st.g]||[]) : [];
-    const subs = st.c ? subsOf(st.c) : [];
+    const subs = st.c ? [NO_SUB].concat(subsOf(st.c)) : [];
     return `
       <div class="spk-filters">
         <input type="search" id="spkQ" placeholder="Search by name or Dex #" value="${esc(st.q)}" autocomplete="off">
@@ -4842,7 +4858,7 @@ function openRecategorizeModal(names){
     const cats = CATEGORY_ORDER[state.group] || [];
     if(!cats.includes(state.category)) state.category = '';
     const subs = state.category ? (SUBCATEGORY_ORDER[state.category] || [state.category]) : [];
-    if(!subs.includes(state.subcategory)) state.subcategory = '';
+    if(state.subcategory !== NO_SUB && !subs.includes(state.subcategory)) state.subcategory = '';
     return `
       <div class="field"><label>Group</label>
         <select id="rcGroup">
@@ -4859,6 +4875,7 @@ function openRecategorizeModal(names){
       <div class="field"><label>Subcategory</label>
         <select id="rcSubcategory" ${!state.category?'disabled':''}>
           <option value="">— choose —</option>
+          <option value="${NO_SUB}" ${state.subcategory===NO_SUB?'selected':''}>No subcategory — file directly in the category</option>
           ${subs.map(x=>`<option value="${esc(x)}" ${state.subcategory===x?'selected':''}>${esc(x)}</option>`).join('')}
         </select>
       </div>
@@ -6642,7 +6659,7 @@ function exportCategorizationCSV(){
         s.dex!=null ? s.dex : '',
         s.group||'',
         s.category||'',
-        s.subcategory||'',
+        (s.subcategory && s.subcategory !== NO_SUB) ? s.subcategory : '',
         s.evoFamily||'',
         s.evoOrder!=null ? s.evoOrder : '',
         isOwned(s.name) ? 'Yes' : 'No',
