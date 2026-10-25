@@ -294,6 +294,14 @@ details.panel[open] > summary::after{content:' ▴';}
 .dot{width:6px;height:6px;border-radius:50%;}
 .dot.owned{background:var(--moss);}
 .dot.pick{background:var(--brass);}
+.fa-sym{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--paper-raised);border:1px solid var(--line-strong);flex-shrink:0;}
+.fa-sym svg{width:13px;height:13px;}
+.fa-sym.fa-none{color:var(--ink-soft);}
+.fa-sym.fa-exists{color:var(--brass);}
+.fa-sym.fa-owned{color:var(--moss);}
+.fa-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:12.5px;color:var(--ink-soft);margin:6px 0 10px;}
+.fa-legend .li{display:inline-flex;align-items:center;gap:5px;}
+.fa-legend .fa-sym{width:20px;height:20px;}
 @media (max-width:860px){
   .binder-grid{gap:7px;}
   .binder-page{padding:10px;border-radius:10px;}
@@ -1026,6 +1034,7 @@ const LS_KEYS = {
   history: 'pkmn.importHistory',
   overrides: 'pkmn.aliasOverrides',
   settings: 'pkmn.settings',
+  fullArtDb: 'pkmn.fullArtDb',
   labelOverrides: 'pkmn.labelOverrides',
   mergedLabels: 'pkmn.mergedLabels',
   categoryOverrides: 'pkmn.categoryOverrides',
@@ -2332,7 +2341,7 @@ const ROUTES = [
   { id:'settings', label:'Settings', icon:'settings', group:'Manage' },
 ];
 // Tools is a hub: these pages all live under it in the menu.
-const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates'];
+const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart'];
 // The bottom tabbar only has room for a handful of tabs before they either
 // get crammed or require horizontal scrolling to discover. These four cover
 // the screens used day-to-day; everything else lives behind "More".
@@ -2384,6 +2393,9 @@ let LAST_ROUTE_KEY = null;
 // Declared up here (before the first render() call) so refreshing the page on
 // the reconcile or import-detail screens doesn't hit an uninitialised variable.
 let reconcileQueue = [];
+let faView = 'none', faScope = 'all';
+let FA_DB = loadJSON(LS_KEYS.fullArtDb, null);   // what the online card database says exists (a saved copy, filled by the check on the Not full art page)
+let faMemo = null, faIdx = null, faIdxKey = '', faRunning = false;   // Full art check page: which list, and whether to show only binder picks
 let reconcileReturnHash = '#/history';
 let importDetailFilter = 'all';
 let importDetailSort = 'recent';
@@ -2396,6 +2408,7 @@ function render(){
   const routeKey = id + '|' + args.join('/');
   const isNewRoute = routeKey !== LAST_ROUTE_KEY;
   LAST_ROUTE_KEY = routeKey;
+  faMemo = null;   // full-art symbols are recalculated on every redraw
 
   // Preserve focus + cursor position across the innerHTML rebuild below, so
   // typing in a search box doesn't dismiss the on-screen keyboard on every
@@ -2422,6 +2435,7 @@ function render(){
     duplicates: renderDuplicates,
     tools: renderTools,
     picks: renderPicksTool,
+    fullart: renderFullArtTool,
     collectr: renderCollectrDiff,
     import: renderImport,
     reconcile: renderReconcile,
@@ -2462,6 +2476,20 @@ document.addEventListener('click', (e) => {
   if(markOwnedBtn){ toggleManualOwned(markOwnedBtn.dataset.species); return; }
   const pickBtn = e.target.closest('[data-action="toggle-pick"]');
   if(pickBtn){ toggleBinderPick(pickBtn.dataset.card, pickBtn.dataset.species); return; }
+  const faRarityBtn = e.target.closest('[data-action="fa-rarity"]');
+  if(faRarityBtn){ const r = faRarityBtn.dataset.r; if(!STATE.settings.fullArt) STATE.settings.fullArt = {}; STATE.settings.fullArt[r] = !faChoiceFor(r); persist('settings'); render(); return; }
+  const faViewBtn = e.target.closest('[data-action="fa-view"]');
+  if(faViewBtn){ const v = faViewBtn.dataset.value; faView = ['cards','pokemon','none','exists'].includes(v) ? v : 'cards'; render(); return; }
+  const faScopeBtn = e.target.closest('[data-action="fa-scope"]');
+  if(faScopeBtn){ faScope = faScopeBtn.dataset.value === 'picks' ? 'picks' : 'all'; render(); return; }
+  const faCopyBtn = e.target.closest('[data-action="fa-copy"]');
+  if(faCopyBtn){ faCopyList(); return; }
+  const faSymBtn = e.target.closest('[data-action="fa-symbols"]');
+  if(faSymBtn){ STATE.settings.faSymbols = STATE.settings.faSymbols === false; persist('settings'); render(); return; }
+  const faCheckBtn = e.target.closest('[data-action="fa-check"]');
+  if(faCheckBtn){ faRunCheck(faCheckBtn.dataset.all === '1'); return; }
+  const faCsvBtn = e.target.closest('[data-action="fa-csv"]');
+  if(faCsvBtn){ faDownloadCSV(); return; }
   const editBtn = e.target.closest('[data-action="edit-card"]');
   if(editBtn){ openCardEditor(editBtn.dataset.card); return; }
   const delBtn = e.target.closest('[data-action="delete-card"]');
@@ -2748,6 +2776,7 @@ function wireScreenEvents(routeId){
       ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
       dz.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if(f) handleImportFile(f); });
     }
+    $('#faKey')?.addEventListener('change', e => { STATE.settings.faApiKey = e.target.value.trim(); persist('settings'); toast(STATE.settings.faApiKey ? 'Key saved.' : 'Key cleared.'); });
     $('#portfolioSelect')?.addEventListener('change', e => { importState.portfolio = e.target.value; render(); });
     $('#cutoffDate')?.addEventListener('change', e => { importState.cutoff = e.target.value || null; render(); });
     $('#changeCutoffBtn')?.addEventListener('click', () => { importState.preview = null; render(); });
@@ -5358,6 +5387,7 @@ function renderBinder(args){
         <button class="btn ghost" data-action="redo-labels" ${labelRedoStack.length?'':'disabled'}>Redo ${ICONS.right||''}</button>
       </div>
     </div>` : ''}
+    ${faLegendHTML()}
     ${binderHighlightPanelHTML(hl)}
     ${binderNavHTML('bd', binderPage, BINDER_MAX_PAGE)}
     <div class="binder-page"><div class="binder-grid">${cells.join('')}</div></div>
@@ -5419,7 +5449,7 @@ function renderPocket(slot, editMode, selection, hl){
           ${setLabel ? `<div class="setmini">${esc(setLabel)}</div>` : ''}
         </div>
         <div class="foot">
-          ${owned?'<span class="dot owned" role="img" aria-label="Owned" title="Owned"></span>':''}${pick?'<span class="dot pick" role="img" aria-label="Binder pick chosen" title="Binder pick chosen"></span>':''}
+          ${faSymbolHTML(slot.display)}${owned?'<span class="dot owned" role="img" aria-label="Owned" title="Owned"></span>':''}${pick?'<span class="dot pick" role="img" aria-label="Binder pick chosen" title="Binder pick chosen"></span>':''}
           ${pickedCard ? `<button class="iconbtn xs" data-action="edit-card" data-card="${esc(pickedCard.id)}" title="Edit this card" aria-label="Edit this card">${ICONS.edit}</button>` : ''}
           ${qty===0 ? `<button class="iconbtn xs mark-owned-btn" data-action="toggle-manual-owned" data-species="${esc(slot.display)}" title="${manualFlag?'Unmark as owned':'Mark as owned (card not matched by import)'}" aria-label="${manualFlag?'Unmark as owned':'Mark as owned'}">${manualFlag?ICONS.check:ICONS.plus}</button>` : ''}
         </div>
@@ -6241,6 +6271,7 @@ function renderTools(){
       <div class="sub">${st.total ? 'A red dot means that tool has something waiting for you. It goes away once it\u2019s resolved.' : 'Everything is taken care of.'}</div></div></div>
     ${tool('collectr','import','Collectr differences','Cards you deleted in the app but not in Collectr, or in Collectr but not in the app.',st.diffs,diffStatus)}
     ${tool('picks','star','Binder picks','Pokémon with more than one card that still need you to choose which goes in the binder.',st.picks, st.picks ? `${fmtInt(st.picks)} Pokémon need a pick` : 'All set')}
+    ${tool('fullart','photo','Not full art','Which Pokémon have no full-art card printed anywhere, which you can still look for, and which of your cards aren’t full art. Also turns on the full-art symbols in the binder.',0,fullArtStatusText())}
     ${tool('duplicates','dupes','Foil + Regular','Cards where you own both a foil and a regular of the same card.',st.pairs, st.pairs ? `${fmtInt(st.pairs)} card${st.pairs===1?'':'s'} to review` : 'None found')}
   `;
 }
@@ -6252,6 +6283,358 @@ function renderPicksTool(){
       <div class="sub">${list.length ? `${fmtInt(list.length)} Pokémon ${list.length===1?'has':'have'} more than one card and no binder pick. Choose which card goes in the main binder for each; anything you leave stays in the extras binder.` : 'Every Pokémon with more than one card has a binder pick.'}</div></div>
       <button class="btn" data-nav="tools">← Tools</button></div>
     ${list.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>All set</h3></div>` : `<div class="cardlist">${list.map(name => renderReconcileSpecies(name)).join('')}</div>`}
+  `;
+}
+
+/* ============================================================
+   Not full art — a list of the cards (or Pokémon) with no full-art card.
+   The app doesn't store "full art" itself; Collectr gives each card a rarity.
+   You tick which rarities count as full art (saved), and everything else is listed.
+   ============================================================ */
+const FULL_ART_GUESS = /ultra|illustration|hyper rare|secret|rainbow|full art|gold/i;   // only a starting guess — you can change every one
+/* ---- What exists in the real card game (from the online Pokémon TCG database) ---- */
+function faNorm(n){
+  return String(n == null ? '' : n).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const FA_FORM_PREFIX = /^(alolan|galarian|hisuian|paldean|mega|primal|m) /;   // cards of a special form, which don't count for the plain Pokémon
+function faActiveDbRarities(){
+  if(!FA_DB || !FA_DB.rarityList) return [];
+  return FA_DB.rarityList.filter(faChoiceFor);
+}
+function faDbReady(){
+  if(!FA_DB || !FA_DB.rarityList || !FA_DB.rarityList.length) return false;
+  const act = faActiveDbRarities();
+  return act.length > 0 && act.every(r => FA_DB.rarities && FA_DB.rarities[r]);
+}
+function faIndex(){
+  const act = faActiveDbRarities().filter(r => FA_DB.rarities && FA_DB.rarities[r]);
+  const key = (FA_DB ? (FA_DB.rev || 0) : 0) + '|' + act.join('|');
+  if(faIdx && faIdxKey === key) return faIdx;
+  const byDex = new Map(), names = new Set();
+  act.forEach(r => (FA_DB.rarities[r].cards || []).forEach(row => {
+    const nm = faNorm(row[0]); names.add(nm);
+    for(let i = 1; i < row.length; i++){ if(!byDex.has(row[i])) byDex.set(row[i], new Set()); byDex.get(row[i]).add(nm); }
+  }));
+  faIdx = { byDex, names:[...names] }; faIdxKey = key;
+  return faIdx;
+}
+// Does a full-art card of this exact Pokémon (or form) exist in the database?
+function faDbHas(sp){
+  const ix = faIndex();
+  const v = sp.variant || '';
+  if(v === 'Mega Evolution'){
+    const m = faNorm(sp.name).match(/^mega (.+?)(?: (x|y))?$/);
+    if(!m) return false;
+    const base = m[1], suffix = m[2] || '';
+    return ix.names.some(n => ['mega ' + base, 'm ' + base].some(pre => {
+      if(n !== pre && !n.startsWith(pre + ' ')) return false;
+      const next = n.slice(pre.length).trim().split(' ')[0] || '';
+      if(suffix && (next === 'x' || next === 'y') && next !== suffix) return false;
+      return true;
+    }));
+  }
+  if(v === 'Alolan Form' || v === 'Galarian Form' || v === 'Hisuian Form' || v === 'Paldean Form' || v === 'Primal Reversion'){
+    const sn = faNorm(String(sp.name).replace(/\s*\(.*\)\s*$/, ''));
+    return ix.names.some(n => n === sn || n.startsWith(sn + ' '));
+  }
+  if(v === 'Gigantamax Form'){
+    const bn = faNorm(sp.baseSpecies || '');
+    return !!bn && ix.names.some(n => n === bn + ' vmax' || n.startsWith(bn + ' vmax '));
+  }
+  // a plain Pokémon, or a cosmetic form of one (Unown letters, Vivillon patterns...): any full-art card of that Pokémon
+  const set = ix.byDex.get(sp.dex);
+  if(!set) return false;
+  for(const n of set){ if(!FA_FORM_PREFIX.test(n)) return true; }
+  return false;
+}
+// 'owned' = you own a full-art card of it, 'exists' = one is out there but you don't have it, 'none' = never printed, '' = not known yet
+function faStatusFor(name){
+  if(!faMemo){
+    const owned = new Set();
+    STATE.collection.forEach(c => { if(c.species && faIsFullArt(c)) owned.add(c.species); });
+    faMemo = { owned, ready: faDbReady(), any: !!(FA_DB && faActiveDbRarities().some(r => FA_DB.rarities && FA_DB.rarities[r])), st: new Map() };
+  }
+  if(faMemo.st.has(name)) return faMemo.st.get(name);
+  let r = '';
+  if(faMemo.owned.has(name)) r = 'owned';
+  else {
+    const sp = speciesByName.get(name);
+    if(sp && faMemo.any){
+      if(faDbHas(sp)) r = 'exists';
+      else if(faMemo.ready && (typeof sp.dex === 'number' || sp.variant)) r = 'none';
+    }
+  }
+  faMemo.st.set(name, r);
+  return r;
+}
+const FA_SYM = {
+  none:   { label:'No full-art card has ever been printed for this Pokémon', svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><line x1="6.5" y1="17.5" x2="17.5" y2="6.5"/></svg>' },
+  exists: { label:'A full-art card exists for this Pokémon, and you don’t own one yet', svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 L14.2 9.8 L21 12 L14.2 14.2 L12 21 L9.8 14.2 L3 12 L9.8 9.8 Z"/></svg>' },
+  owned:  { label:'You own a full-art card of this Pokémon', svg:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3 L14.2 9.8 L21 12 L14.2 14.2 L12 21 L9.8 14.2 L3 12 L9.8 9.8 Z"/></svg>' },
+};
+function faSymbolHTML(name){
+  if(STATE.settings.faSymbols === false) return '';
+  const st = faStatusFor(name);
+  if(!st) return '';
+  return `<span class="fa-sym fa-${st}" role="img" aria-label="${esc(FA_SYM[st].label)}" title="${esc(FA_SYM[st].label)}">${FA_SYM[st].svg}</span>`;
+}
+function faLegendHTML(){
+  if(STATE.settings.faSymbols === false){
+    return `<div class="fa-legend"><button class="btn ghost sm" data-action="fa-symbols">Show full-art symbols</button></div>`;
+  }
+  const li = k => `<span class="li"><span class="fa-sym fa-${k}">${FA_SYM[k].svg}</span>${k==='none'?'No full art printed':k==='exists'?'Full art exists':'You own one'}</span>`;
+  return `<div class="fa-legend"><strong>Full art</strong>${li('none')}${li('exists')}${li('owned')}
+    <button class="btn ghost sm" data-action="fa-symbols">Hide symbols</button>
+    ${faDbReady() ? '' : `<button class="btn ghost sm" data-nav="fullart">${FA_DB ? 'Finish the check' : 'Run the check'} for the other two</button>`}</div>`;
+}
+async function faRunCheck(all){
+  if(faRunning) return;
+  faRunning = true;
+  const say = t => { const el = document.getElementById('faProgress'); if(el) el.textContent = t; };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const key = String(STATE.settings.faApiKey || '').trim();
+  const headers = key ? { 'X-Api-Key': key } : {};
+  const get = async url => {
+    for(let attempt = 0; attempt < 3; attempt++){
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 60000);
+      try{
+        const res = await fetch(url, { headers, signal: ctl.signal });
+        clearTimeout(t);
+        if(res.status === 429){ const er = new Error('rate'); er.rate = true; throw er; }
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+      }catch(er){ clearTimeout(t); if(er.rate || attempt === 2) throw er; await sleep(1500 * (attempt + 1)); }
+    }
+  };
+  render();
+  try{
+    if(!FA_DB || typeof FA_DB !== 'object') FA_DB = { v:1, rarityList:[], rarities:{}, fetchedAt:'', rev:0 };
+    if(!FA_DB.rarities) FA_DB.rarities = {};
+    say('Getting the list of rarities…');
+    const rl = await get('https://api.pokemontcg.io/v2/rarities');
+    FA_DB.rarityList = (rl.data || []).filter(x => typeof x === 'string');
+    const todo = FA_DB.rarityList.filter(faChoiceFor).filter(r => all || !FA_DB.rarities[r]);
+    if(!todo.length) say('Everything is already saved.');
+    for(let i = 0; i < todo.length; i++){
+      const r = todo[i];
+      const q = encodeURIComponent('rarity:"' + r + '"');
+      let page = 1, total = Infinity, seen = 0;
+      const rows = new Map();
+      while(seen < total){
+        say(`Checking “${r}” (${i + 1} of ${todo.length}) — page ${page}…`);
+        const j = await get(`https://api.pokemontcg.io/v2/cards?q=${q}&select=name,supertype,nationalPokedexNumbers&pageSize=250&page=${page}`);
+        total = j.totalCount || 0;
+        const data = j.data || [];
+        if(!data.length) break;
+        seen += data.length; page++;
+        data.forEach(c => {
+          if(!/^pok/i.test(String(c.supertype || ''))) return;
+          const dex = (c.nationalPokedexNumbers || []).filter(n => typeof n === 'number');
+          rows.set(c.name + '|' + dex.join(','), [c.name].concat(dex));
+        });
+        await sleep(250);
+      }
+      FA_DB.rarities[r] = { cards:[...rows.values()] };
+      FA_DB.rev = (FA_DB.rev || 0) + 1;
+      saveJSON(LS_KEYS.fullArtDb, FA_DB);
+    }
+    FA_DB.fetchedAt = new Date().toISOString();
+    FA_DB.rev = (FA_DB.rev || 0) + 1;
+    if(saveJSON(LS_KEYS.fullArtDb, FA_DB) === false) toast('Checked, but there was no room to save the results for next time.');
+    else toast('Full-art check finished.');
+  }catch(er){
+    try{ saveJSON(LS_KEYS.fullArtDb, FA_DB); }catch(e2){}
+    const msg = er && er.rate
+      ? 'The card database says there have been too many requests. What was already fetched is kept. Wait a while, or paste a free key from dev.pokemontcg.io below, then tap Check again.'
+      : 'Couldn’t reach the card database (' + (er && er.message ? er.message : 'no connection') + '). What was already fetched is kept. Check your connection and tap Check again.';
+    faRunning = false; render();
+    const el = document.getElementById('faProgress'); if(el) el.textContent = msg;
+    return;
+  }
+  faRunning = false;
+  render();
+}
+
+function faChoiceFor(r){
+  const m = STATE.settings.fullArt || {};
+  if(Object.prototype.hasOwnProperty.call(m, r)) return !!m[r];
+  return FULL_ART_GUESS.test(r);
+}
+function faRarityOf(c){ return String(c.rarity || '').trim() || '(no rarity listed)'; }
+function faIsFullArt(c){ return faChoiceFor(faRarityOf(c)); }
+function faByName(a, b){
+  return String(a.species || a.productName || '').localeCompare(String(b.species || b.productName || ''))
+    || String(a.set || '').localeCompare(String(b.set || ''))
+    || String(a.cardNumber || '').localeCompare(String(b.cardNumber || ''), undefined, { numeric:true });
+}
+function fullArtStatusText(){
+  const n = STATE.collection.filter(c => !faIsFullArt(c)).length;
+  return STATE.collection.length ? `${fmtInt(n)} of ${fmtInt(STATE.collection.length)} cards are not full art` : 'No cards yet';
+}
+// The list currently on screen, as plain data (used by the page, Copy and Download).
+function faSpeciesRowsFor(status){
+  const rows = SPECIES.filter(sp => faStatusFor(sp.name) === status);
+  const slotOf = sp => { const b = binderSlotBySpecies.get(sp.name); return b ? b.slot : 1e9; };
+  rows.sort((x, y) => slotOf(x) - slotOf(y) || x.name.localeCompare(y.name));
+  return rows;
+}
+function faCurrentList(){
+  if(faView === 'none' || faView === 'exists'){
+    return { kind:faView, rows: faSpeciesRowsFor(faView), needsCheck: faView === 'none' ? !faDbReady() : !(FA_DB && faActiveDbRarities().some(r => FA_DB.rarities && FA_DB.rarities[r])) };
+  }
+  if(faView === 'pokemon'){
+    const by = new Map();
+    STATE.collection.forEach(c => { if(!c.species) return; if(!by.has(c.species)) by.set(c.species, []); by.get(c.species).push(c); });
+    const rows = [];
+    by.forEach((cards, name) => { if(!cards.some(faIsFullArt)) rows.push({ name, cards }); });
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    return { kind:'pokemon', rows, owned:by.size };
+  }
+  let cards = STATE.collection.filter(c => !faIsFullArt(c));
+  if(faScope === 'picks') cards = cards.filter(c => c.species && STATE.picks[c.species] === c.id);
+  cards.sort(faByName);
+  return { kind:'cards', rows:cards };
+}
+function faSpeciesLine(sp){
+  const b = binderSlotBySpecies.get(sp.name);
+  return [taxBreadcrumb(sp), b ? `binder page ${b.page}, pocket ${b.pocket}` : ''].filter(Boolean).join(' · ');
+}
+function faCopyList(){
+  const L = faCurrentList();
+  let text;
+  if(L.kind === 'none' || L.kind === 'exists'){
+    text = (L.kind === 'none' ? 'Pokémon with no full-art card printed anywhere' : 'Pokémon with a full-art card available that I don’t own') + '\n' + L.rows.map(sp => `${sp.name} — ${faSpeciesLine(sp)}`).join('\n');
+  } else if(L.kind === 'pokemon'){
+    text = 'Pokémon with no full-art card in my collection\n' + L.rows.map(r => `${r.name} — ${r.cards.length} card${r.cards.length===1?'':'s'}: ` + [...new Set(r.cards.map(faRarityOf))].join(', ')).join('\n');
+  } else {
+    text = 'Cards that are not full art\n' + L.rows.map(c => `${c.species || c.productName} — ${[c.set, c.cardNumber ? '#' + c.cardNumber : ''].filter(Boolean).join(' ')} (${faRarityOf(c)})${c.variance ? ', ' + c.variance : ''}${c.quantity > 1 ? ' x' + c.quantity : ''}`).join('\n');
+  }
+  const done = () => toast('List copied.');
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => toast('Could not copy — use Download instead.'));
+  else toast('Copy is not available here — use Download instead.');
+}
+function faDownloadCSV(){
+  const L = faCurrentList();
+  const q = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const lines = [];
+  if(L.kind === 'none' || L.kind === 'exists'){
+    lines.push(['Pokémon', 'Dex #', 'Category', 'Binder page', 'Binder pocket'].map(q).join(','));
+    L.rows.forEach(sp => { const b = binderSlotBySpecies.get(sp.name); lines.push([sp.name, sp.dex != null ? sp.dex : '', taxBreadcrumb(sp), b ? b.page : '', b ? b.pocket : ''].map(q).join(',')); });
+  } else if(L.kind === 'pokemon'){
+    lines.push(['Pokémon', 'Cards owned', 'Rarities'].map(q).join(','));
+    L.rows.forEach(r => lines.push([r.name, r.cards.length, [...new Set(r.cards.map(faRarityOf))].join('; ')].map(q).join(',')));
+  } else {
+    lines.push(['Pokémon', 'Set', 'Card #', 'Rarity', 'Variance', 'Condition', 'Qty', 'Binder pick'].map(q).join(','));
+    L.rows.forEach(c => lines.push([c.species || c.productName, c.set, c.cardNumber, faRarityOf(c), c.variance, c.condition, c.quantity, (c.species && STATE.picks[c.species] === c.id) ? 'Yes' : 'No'].map(q).join(',')));
+  }
+  const nm = { none:'no-full-art-printed', exists:'full-art-available-not-owned', pokemon:'pokemon-no-full-art-owned', cards:'cards-not-full-art' }[L.kind];
+  downloadFile(`kyles-deck-${nm}-${todayISO()}.csv`, lines.join('\n'), 'text/csv');
+}
+function faCardRow(c){
+  const sp = c.species ? speciesByName.get(c.species) : null;
+  const isPick = !!(sp && STATE.picks[sp.name] === c.id);
+  return `
+    <div class="cardrow">
+      <div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
+      <div class="info">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-family:var(--font-display);font-weight:600;">${esc(c.species || c.productName)}</span>
+          ${isPick ? '<span class="badge pick">★ Binder pick</span>' : ''}
+        </div>
+        <div class="set">${esc(c.set)} · #${esc(c.cardNumber)} · ${esc(faRarityOf(c))}${c.variance ? (' · ' + esc(c.variance)) : ''}</div>
+        <div class="meta">${esc(c.condition)} · Qty ${c.quantity}</div>
+        ${sp ? `<div style="margin-top:6px;"><button class="starbtn ${isPick?'active':''}" data-action="toggle-pick" data-card="${esc(c.id)}" data-species="${esc(sp.name)}" title="${isPick?'This card is the main binder pick. Tap to remove it.':'Use this card in the main binder'}" aria-pressed="${isPick?'true':'false'}">${isPick?ICONS.star:ICONS.starOutline}<span>${isPick?'In main binder':'Use in main binder'}</span></button></div>` : ''}
+      </div>
+    </div>`;
+}
+function faPokemonRow(r){
+  const sp = speciesByName.get(r.name);
+  const pickId = STATE.picks[r.name];
+  const pick = pickId ? r.cards.find(c => c.id === pickId) : null;
+  return `
+    <div class="cardrow">
+      <div class="cardrow-art">${sp ? speciesImgTag(sp,'cardrow-img') : `<div class="imgwrap cardrow-img"><div class="imgfallback">${ICONS.photo}</div></div>`}</div>
+      <div class="info">
+        <div style="font-family:var(--font-display);font-weight:600;">${esc(r.name)}</div>
+        <div class="set">${r.cards.length} card${r.cards.length===1?'':'s'} · ${esc([...new Set(r.cards.map(faRarityOf))].join(', '))}</div>
+        ${pick ? `<div class="meta">Binder pick: ${esc(pick.set)} #${esc(pick.cardNumber)}</div>` : ''}
+      </div>
+    </div>`;
+}
+function faSpeciesRow(sp){
+  const b = binderSlotBySpecies.get(sp.name);
+  return `
+    <div class="cardrow">
+      <div class="cardrow-art">${speciesImgTag(sp,'cardrow-img')}</div>
+      <div class="info">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--font-display);font-weight:600;">${esc(sp.name)}</span>${faSymbolHTML(sp.name)}</div>
+        <div class="set">${esc(taxBreadcrumb(sp))}</div>
+        ${b ? `<div style="margin-top:6px;"><span class="chip sm" data-goto-binder="${b.page}">${ICONS.binder} Binder page ${b.page}, pocket ${b.pocket}</span></div>` : ''}
+      </div>
+    </div>`;
+}
+function renderFullArtTool(){
+  const counts = new Map();
+  STATE.collection.forEach(c => { const r = faRarityOf(c); counts.set(r, (counts.get(r) || 0) + 1); });
+  const names = new Set(counts.keys());
+  ((FA_DB && FA_DB.rarityList) || []).forEach(r => names.add(r));
+  const rarities = [...names].sort((a, b) => a.localeCompare(b));
+  const L = faCurrentList();
+  const LIMIT = 300;
+  const shown = L.rows.slice(0, LIMIT);
+  const chip = (action, val, cur, label) => `<button class="chip ${cur===val?'active':''}" data-action="${action}" data-value="${val}">${label}</button>`;
+  const ready = faDbReady();
+  const checkedOn = FA_DB && FA_DB.fetchedAt ? new Date(FA_DB.fetchedAt).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }) : '';
+  const sub = !STATE.collection.length && (faView === 'cards' || faView === 'pokemon') ? 'Import your cards first.'
+    : L.kind === 'none' ? (L.needsCheck ? 'Run the check below first.' : `${fmtInt(L.rows.length)} Pokémon have no full-art card printed anywhere.`)
+    : L.kind === 'exists' ? (L.needsCheck ? 'Run the check below first.' : `${fmtInt(L.rows.length)} Pokémon have a full-art card you don’t own yet.`)
+    : L.kind === 'pokemon' ? `${fmtInt(L.rows.length)} of your ${fmtInt(L.owned)} Pokémon have no full-art card.`
+    : `${fmtInt(L.rows.length)} card${L.rows.length===1?'':'s'} ${faScope==='picks' ? '(binder picks only) ' : ''}are not full art.`;
+  const checkPanel = `
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="section-title" style="margin-top:0;">What exists in the card game</div>
+      <p class="tx-hint">${faRunning ? 'Checking the online Pokémon TCG database. This can take a few minutes, and you can leave this page open.'
+        : ready ? `Checked ${esc(checkedOn)}. Your binder now shows a symbol on each Pokémon: nothing printed, available, or yours. Tap Update now and then to catch new releases.`
+        : FA_DB && FA_DB.rarityList && FA_DB.rarityList.length ? 'The check is unfinished, or you changed which rarities count as full art. Tap Check to fetch what’s missing. Nothing is lost if it stops.'
+        : 'Asks the online Pokémon TCG database which Pokémon have ever had a full-art card. It needs an internet connection, and the results are saved on this device. Until you run it, the binder can only show which Pokémon you own a full-art card of.'}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        ${ready ? `<button class="btn" data-action="fa-check" data-all="1" ${faRunning?'disabled':''}>Update</button>` : `<button class="btn primary" data-action="fa-check" data-all="0" ${faRunning?'disabled':''}>${FA_DB && FA_DB.rarityList && FA_DB.rarityList.length ? 'Check' : 'Check the database'}</button>`}
+        <span id="faProgress" style="font-size:12.5px;color:var(--ink-soft);"></span>
+      </div>
+      <div class="field" style="margin-top:12px;max-width:420px;"><label>Free key (optional)</label>
+        <input type="text" id="faKey" value="${esc(STATE.settings.faApiKey || '')}" placeholder="Only needed if the database says too many requests" autocomplete="off">
+        <div class="tx-hint">You can get one free at dev.pokemontcg.io. It raises the daily limit.</div></div>
+    </div>`;
+  return `
+    <div class="pagehead"><div><h1>Not full art</h1><div class="sub">${sub}</div></div>
+      <button class="btn" data-nav="tools">← Tools</button></div>
+    ${checkPanel}
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="section-title" style="margin-top:0;">Which rarities count as full art?</div>
+      <p class="tx-hint">The app only knows the rarity each card has. Tap a rarity to switch it. A filled one counts as full art. I’ve filled in my best guess, so please check it. The same choices are used for your cards and for the online database.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${rarities.map(r => { const on = faChoiceFor(r); const n = counts.get(r); return `<button class="chip ${on?'active':''}" data-action="fa-rarity" data-r="${esc(r)}" aria-pressed="${on?'true':'false'}">${on?'✓ ':''}${esc(r)}${n ? ' · ' + fmtInt(n) : ''}</button>`; }).join('') || '<span class="tx-hint">Import your cards or run the check to see the rarities.</span>'}
+      </div>
+    </div>
+    <div class="import-controls">
+      <div class="import-controls-row"><span class="import-controls-label">List</span>
+        ${chip('fa-view','none',faView,'Never printed in full art')}${chip('fa-view','exists',faView,'Full art exists, I don’t own one')}${chip('fa-view','cards',faView,'My cards that aren’t full art')}${chip('fa-view','pokemon',faView,'My Pokémon with no full-art card')}
+      </div>
+      ${faView === 'cards' ? `<div class="import-controls-row"><span class="import-controls-label">Show</span>
+        ${chip('fa-scope','all',faScope,'All cards')}${chip('fa-scope','picks',faScope,'Binder picks only')}
+      </div>` : ''}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px;">
+      <button class="btn" data-action="fa-copy" ${L.rows.length?'':'disabled'}>Copy list</button>
+      <button class="btn" data-action="fa-csv" ${L.rows.length?'':'disabled'}>Download CSV</button>
+    </div>
+    ${L.rows.length ? `<div class="cardlist">${shown.map(r => L.kind === 'pokemon' ? faPokemonRow(r) : (L.kind === 'none' || L.kind === 'exists') ? faSpeciesRow(r) : faCardRow(r)).join('')}</div>
+      ${L.rows.length > LIMIT ? `<p class="tx-hint" style="margin-top:10px;">Showing the first ${LIMIT} of ${fmtInt(L.rows.length)}. Copy list or Download CSV gives you all of them.</p>` : ''}`
+      : `<div class="emptystate card">${ICONS.empty}<h3>${L.needsCheck ? 'Run the check first' : 'Nothing to list'}</h3><p>${L.needsCheck ? 'This list comes from the online card database. Tap Check the database above.'
+        : faView==='none' ? 'Every Pokémon has at least one full-art card in the database (or you own one).'
+        : faView==='exists' ? 'You own a full-art card of every Pokémon that has one.'
+        : faView==='pokemon' ? 'Every Pokémon you own has at least one full-art card.'
+        : (faScope==='picks' ? 'Every binder pick is full art.' : 'Every card counts as full art with the rarities you ticked.')}</p></div>`}
   `;
 }
 
