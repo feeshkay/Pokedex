@@ -6098,7 +6098,7 @@ function renderImportRow(it, showSource, dupMap, pairSet, newSpeciesSet){
         </div>
         <div class="set">${esc(c.set)} · #${esc(c.cardNumber)} · ${esc(c.rarity)}${c.variance?(' · '+esc(c.variance)):''}</div>
         <div class="meta">${esc(c.condition)} · Qty ${c.quantity} · Date Added ${esc(c.dateAdded)}${taxLabel ? ' · '+esc(taxLabel) : ''}${showSource ? ' · from '+esc(it.batch.filename||'import') : ''}</div>
-        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${cardDestinationHTML(c)}</div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${cardDestinationHTML(c)}${sp ? (() => { const isPick = STATE.picks[sp.name] === c.id; return `<button class="starbtn ${isPick?'active':''}" data-action="toggle-pick" data-card="${esc(c.id)}" data-species="${esc(sp.name)}" title="${isPick?'This card is the main binder pick. Tap to remove it.':'Use this card in the main binder'}" aria-label="${isPick?'Main binder pick for':'Use in main binder for'} ${esc(sp.name)}" aria-pressed="${isPick?'true':'false'}">${isPick?ICONS.star:ICONS.starOutline}<span>${isPick?'In main binder':'Use in main binder'}</span></button>`; })() : ''}</div>
       </div>
     </div>`;
 }
