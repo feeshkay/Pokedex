@@ -302,6 +302,15 @@ details.panel[open] > summary::after{content:' ▴';}
 .fa-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:12.5px;color:var(--ink-soft);margin:6px 0 10px;}
 .fa-legend .li{display:inline-flex;align-items:center;gap:5px;}
 .fa-legend .fa-sym{width:20px;height:20px;}
+.ck-row{display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer;}
+.ck-row .box{font-size:17px;line-height:1;color:var(--ink-soft);width:20px;text-align:center;flex-shrink:0;}
+.ck-row.have .box{color:var(--moss);}
+.ck-row .nm{font-family:var(--font-display);font-weight:600;}
+.ck-row .sub{font-size:12px;color:var(--ink-soft);}
+.ck-row .grow{flex:1;min-width:0;}
+.ck-group{margin:16px 0 4px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.ck-group .gn{font-family:var(--font-display);font-weight:700;font-size:15px;}
+.ck-group .gc{font-size:12px;color:var(--ink-soft);}
 @media (max-width:860px){
   .binder-grid{gap:7px;}
   .binder-page{padding:10px;border-radius:10px;}
@@ -2341,7 +2350,7 @@ const ROUTES = [
   { id:'settings', label:'Settings', icon:'settings', group:'Manage' },
 ];
 // Tools is a hub: these pages all live under it in the menu.
-const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart'];
+const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist'];
 // The bottom tabbar only has room for a handful of tabs before they either
 // get crammed or require horizontal scrolling to discover. These four cover
 // the screens used day-to-day; everything else lives behind "More".
@@ -2395,7 +2404,8 @@ let LAST_ROUTE_KEY = null;
 let reconcileQueue = [];
 let faView = 'none', faScope = 'all';
 let FA_DB = loadJSON(LS_KEYS.fullArtDb, null);   // what the online card database says exists (a saved copy, filled by the check on the Not full art page)
-let faMemo = null, faIdx = null, faIdxKey = '', faRunning = false;   // Full art check page: which list, and whether to show only binder picks
+let faMemo = null, faIdx = null, faIdxKey = '', faRunning = false;
+let ckView = 'missing', ckIncludeForms = false, ckFormStatus = 'all', ckFormType = '', ckMemo = null;   // Checklists page   // Full art check page: which list, and whether to show only binder picks
 let reconcileReturnHash = '#/history';
 let importDetailFilter = 'all';
 let importDetailSort = 'recent';
@@ -2409,6 +2419,7 @@ function render(){
   const isNewRoute = routeKey !== LAST_ROUTE_KEY;
   LAST_ROUTE_KEY = routeKey;
   faMemo = null;   // full-art symbols are recalculated on every redraw
+  ckMemo = null;
 
   // Preserve focus + cursor position across the innerHTML rebuild below, so
   // typing in a search box doesn't dismiss the on-screen keyboard on every
@@ -2436,6 +2447,7 @@ function render(){
     tools: renderTools,
     picks: renderPicksTool,
     fullart: renderFullArtTool,
+    checklist: renderChecklistTool,
     collectr: renderCollectrDiff,
     import: renderImport,
     reconcile: renderReconcile,
@@ -2488,6 +2500,14 @@ document.addEventListener('click', (e) => {
   if(faSymBtn){ STATE.settings.faSymbols = STATE.settings.faSymbols === false; persist('settings'); render(); return; }
   const faCheckBtn = e.target.closest('[data-action="fa-check"]');
   if(faCheckBtn){ faRunCheck(faCheckBtn.dataset.all === '1'); return; }
+  const ckViewBtn = e.target.closest('[data-action="ck-view"]');
+  if(ckViewBtn){ ckView = ckViewBtn.dataset.value === 'forms' ? 'forms' : 'missing'; render(); return; }
+  const ckFormsBtn = e.target.closest('[data-action="ck-forms"]');
+  if(ckFormsBtn){ ckIncludeForms = !ckIncludeForms; render(); return; }
+  const ckStatusBtn = e.target.closest('[data-action="ck-status"]');
+  if(ckStatusBtn){ const v = ckStatusBtn.dataset.value; ckFormStatus = (v === 'missing' || v === 'have') ? v : 'all'; render(); return; }
+  const ckExportBtn = e.target.closest('[data-action="ck-export"]');
+  if(ckExportBtn){ ckExport(ckExportBtn.dataset.how); return; }
   const faCsvBtn = e.target.closest('[data-action="fa-csv"]');
   if(faCsvBtn){ faDownloadCSV(); return; }
   const editBtn = e.target.closest('[data-action="edit-card"]');
@@ -2765,6 +2785,12 @@ function wireScreenEvents(routeId){
       runBinderScroll();
     }
   }
+  else if(routeId === 'fullart'){
+    $('#faKey')?.addEventListener('change', e => { STATE.settings.faApiKey = e.target.value.trim(); persist('settings'); toast(STATE.settings.faApiKey ? 'Key saved.' : 'Key cleared.'); });
+  }
+  else if(routeId === 'checklist'){
+    $('#ckType')?.addEventListener('change', e => { ckFormType = e.target.value; render(); });
+  }
   else if(routeId === 'import'){
     const dz = $('#dropzone');
     const fileInput = $('#fileInput');
@@ -2776,7 +2802,6 @@ function wireScreenEvents(routeId){
       ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
       dz.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if(f) handleImportFile(f); });
     }
-    $('#faKey')?.addEventListener('change', e => { STATE.settings.faApiKey = e.target.value.trim(); persist('settings'); toast(STATE.settings.faApiKey ? 'Key saved.' : 'Key cleared.'); });
     $('#portfolioSelect')?.addEventListener('change', e => { importState.portfolio = e.target.value; render(); });
     $('#cutoffDate')?.addEventListener('change', e => { importState.cutoff = e.target.value || null; render(); });
     $('#changeCutoffBtn')?.addEventListener('click', () => { importState.preview = null; render(); });
@@ -6271,6 +6296,7 @@ function renderTools(){
       <div class="sub">${st.total ? 'A red dot means that tool has something waiting for you. It goes away once it\u2019s resolved.' : 'Everything is taken care of.'}</div></div></div>
     ${tool('collectr','import','Collectr differences','Cards you deleted in the app but not in Collectr, or in Collectr but not in the app.',st.diffs,diffStatus)}
     ${tool('picks','star','Binder picks','Pokémon with more than one card that still need you to choose which goes in the binder.',st.picks, st.picks ? `${fmtInt(st.picks)} Pokémon need a pick` : 'All set')}
+    ${tool('checklist','check','Checklists','Pokémon you don’t have yet in A–Z order, plus every variation you have or are missing (Floette colours, regional forms and so on). Copy or download them.',0,ckStatusText())}
     ${tool('fullart','photo','Not full art','Which Pokémon have no full-art card printed anywhere, which you can still look for, and which of your cards aren’t full art. Also turns on the full-art symbols in the binder.',0,fullArtStatusText())}
     ${tool('duplicates','dupes','Foil + Regular','Cards where you own both a foil and a regular of the same card.',st.pairs, st.pairs ? `${fmtInt(st.pairs)} card${st.pairs===1?'':'s'} to review` : 'None found')}
   `;
@@ -6283,6 +6309,143 @@ function renderPicksTool(){
       <div class="sub">${list.length ? `${fmtInt(list.length)} Pokémon ${list.length===1?'has':'have'} more than one card and no binder pick. Choose which card goes in the main binder for each; anything you leave stays in the extras binder.` : 'Every Pokémon with more than one card has a binder pick.'}</div></div>
       <button class="btn" data-nav="tools">← Tools</button></div>
     ${list.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>All set</h3></div>` : `<div class="cardlist">${list.map(name => renderReconcileSpecies(name)).join('')}</div>`}
+  `;
+}
+
+/* ============================================================
+   Checklists — Pokémon you don't have yet (A–Z), and variations you have / are missing
+   ============================================================ */
+function ckOwned(name){
+  if(!ckMemo){
+    const qty = new Map();
+    STATE.collection.forEach(c => { if(c.species) qty.set(c.species, (qty.get(c.species) || 0) + (Number(c.quantity) || 0)); });
+    ckMemo = { qty };
+  }
+  return (ckMemo.qty.get(name) || 0) > 0 || !!STATE.manualOwned[name];
+}
+function ckCompare(a, b){
+  const ka = String(a.baseSpecies || a.name).toLowerCase(), kb = String(b.baseSpecies || b.name).toLowerCase();
+  return ka.localeCompare(kb) || ((a.variant ? 1 : 0) - (b.variant ? 1 : 0)) || String(a.name).localeCompare(String(b.name));
+}
+function ckMissingRows(){
+  return SPECIES.filter(sp => (ckIncludeForms || !sp.variant) && !ckOwned(sp.name)).sort(ckCompare);
+}
+// Every variation, grouped under its base Pokémon (the base itself is the first row, labelled "Standard form").
+function ckFormGroups(){
+  const by = new Map();
+  SPECIES.forEach(sp => { if(!sp.variant) return; const b = sp.baseSpecies || sp.name; if(!by.has(b)) by.set(b, []); by.get(b).push(sp); });
+  const groups = [];
+  by.forEach((forms, base) => {
+    const baseSp = speciesByName.get(base);
+    let rows = (baseSp && !baseSp.variant ? [{ sp:baseSp, type:'Standard form', isBase:true }] : [])
+      .concat(forms.slice().sort((a, b) => a.name.localeCompare(b.name)).map(sp => ({ sp, type:sp.variant, isBase:false })));
+    if(ckFormType) rows = rows.filter(r => r.type === ckFormType);
+    rows.forEach(r => { r.have = ckOwned(r.sp.name); });
+    if(rows.length) groups.push({ base, rows });
+  });
+  groups.sort((a, b) => a.base.localeCompare(b.base));
+  return groups;
+}
+function ckFormTypes(){
+  const t = new Map();
+  SPECIES.forEach(sp => { if(sp.variant) t.set(sp.variant, (t.get(sp.variant) || 0) + 1); });
+  return [...t.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+function ckStatusText(){
+  const miss = SPECIES.filter(sp => !sp.variant && !ckOwned(sp.name)).length;
+  const forms = SPECIES.filter(sp => sp.variant);
+  const have = forms.filter(sp => ckOwned(sp.name)).length;
+  return `${fmtInt(miss)} Pokémon to find · ${fmtInt(have)} of ${fmtInt(forms.length)} variations`;
+}
+function ckSlotText(sp){
+  const b = binderSlotBySpecies.get(sp.name);
+  return b ? `binder page ${b.page}, pocket ${b.pocket}` : '';
+}
+function ckExport(how){
+  const q = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const stamp = todayISO();
+  let text = '', csv = [], base = '';
+  if(ckView === 'missing'){
+    const rows = ckMissingRows();
+    base = ckIncludeForms ? 'pokemon-and-variations-to-find' : 'pokemon-to-find';
+    text = `Pokémon I don’t have yet (${rows.length})\n` + rows.map(sp => `[ ] ${sp.name}`).join('\n');
+    csv.push(['Got it?', 'Pokémon', 'Dex #', 'Category', 'Binder page', 'Binder pocket'].map(q).join(','));
+    rows.forEach(sp => { const b = binderSlotBySpecies.get(sp.name); csv.push(['', sp.name, sp.dex != null ? sp.dex : '', taxBreadcrumb(sp), b ? b.page : '', b ? b.pocket : ''].map(q).join(',')); });
+  } else {
+    const groups = ckFormGroups().map(g => ({ base:g.base, all:g.rows, rows:g.rows.filter(r => ckFormStatus === 'missing' ? !r.have : ckFormStatus === 'have' ? r.have : true) })).filter(g => g.rows.length);
+    base = 'variations';
+    const lines = ['Variations' + (ckFormType ? ' — ' + ckFormType : '') + (ckFormStatus === 'missing' ? ' I don’t have' : ckFormStatus === 'have' ? ' I have' : ' (have and missing)')];
+    groups.forEach(g => {
+      lines.push('', `${g.base} (${g.all.filter(r => r.have).length} of ${g.all.length})`);
+      g.rows.forEach(r => lines.push(`  [${r.have ? 'x' : ' '}] ${r.sp.name}${r.isBase ? '' : ' — ' + r.type}`));
+    });
+    text = lines.join('\n');
+    csv.push(['Pokémon', 'Form', 'Type of form', 'Have it', 'Binder page', 'Binder pocket'].map(q).join(','));
+    groups.forEach(g => g.rows.forEach(r => { const b = binderSlotBySpecies.get(r.sp.name); csv.push([g.base, r.sp.name, r.type, r.have ? 'Yes' : 'No', b ? b.page : '', b ? b.pocket : ''].map(q).join(',')); }));
+  }
+  if(how === 'copy'){
+    const done = () => toast('List copied.');
+    if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => toast('Could not copy — use Download instead.'));
+    else toast('Copy is not available here — use Download instead.');
+  }
+  else if(how === 'txt') downloadFile(`kyles-deck-${base}-${stamp}.txt`, text, 'text/plain');
+  else downloadFile(`kyles-deck-${base}-${stamp}.csv`, csv.join('\n'), 'text/csv');
+}
+function ckRowHTML(sp, have, extra){
+  const slot = binderSlotBySpecies.get(sp.name);
+  return `
+    <div class="ck-row ${have ? 'have' : ''}" data-nav-species="${esc(sp.name)}">
+      <span class="box" aria-hidden="true">${have ? '✓' : '☐'}</span>
+      <div class="grow"><span class="nm">${esc(sp.name)}</span><span class="sr-only"> — ${have ? 'you have it' : 'you don’t have it yet'}</span>
+        <div class="sub">${esc(extra || taxBreadcrumb(sp))}</div></div>
+      ${slot ? `<span class="chip sm" data-goto-binder="${slot.page}">${ICONS.binder} Pg ${slot.page}</span>` : ''}
+    </div>`;
+}
+function renderChecklistTool(){
+  const chip = (action, val, cur, label) => `<button class="chip ${cur===val?'active':''}" data-action="${action}" data-value="${val}">${label}</button>`;
+  let sub = '', body = '', controls = '', canExport = true;
+  if(ckView === 'missing'){
+    const rows = ckMissingRows();
+    const total = SPECIES.filter(sp => ckIncludeForms || !sp.variant).length;
+    sub = `${fmtInt(rows.length)} of ${fmtInt(total)} ${ckIncludeForms ? 'Pokémon and variations' : 'Pokémon'} still to find, A to Z.`;
+    controls = `<div class="import-controls-row"><span class="import-controls-label">Include</span>
+      <button class="chip ${ckIncludeForms?'active':''}" data-action="ck-forms" aria-pressed="${ckIncludeForms?'true':'false'}">${ckIncludeForms?'✓ ':''}Variations (they sit next to their Pokémon)</button></div>`;
+    const LIMIT = 500;
+    canExport = rows.length > 0;
+    body = rows.length ? `<div>${rows.slice(0, LIMIT).map(sp => ckRowHTML(sp, false, sp.variant ? sp.variant + ' · ' + taxBreadcrumb(sp) : '')).join('')}</div>
+        ${rows.length > LIMIT ? `<p class="tx-hint" style="margin-top:10px;">Showing the first ${LIMIT} of ${fmtInt(rows.length)}. Copy or download gives you all of them.</p>` : ''}`
+      : `<div class="emptystate card">${ICONS.empty}<h3>Nothing left to find</h3><p>You have every one on this list.</p></div>`;
+  } else {
+    const all = ckFormGroups();
+    let nHave = 0, nTot = 0;
+    all.forEach(g => g.rows.forEach(r => { if(r.isBase) return; nTot++; if(r.have) nHave++; }));
+    const groups = all.map(g => ({ base:g.base, all:g.rows, rows:g.rows.filter(r => ckFormStatus === 'missing' ? !r.have : ckFormStatus === 'have' ? r.have : true) })).filter(g => g.rows.length);
+    sub = `You have ${fmtInt(nHave)} of ${fmtInt(nTot)} variations${ckFormType ? ' of this type' : ''}. The standard form is shown first for context.`;
+    const types = ckFormTypes();
+    controls = `<div class="import-controls-row"><span class="import-controls-label">Show</span>
+        ${chip('ck-status','all',ckFormStatus,'All')}${chip('ck-status','missing',ckFormStatus,'Missing')}${chip('ck-status','have',ckFormStatus,'Have')}</div>
+      <div class="import-controls-row"><span class="import-controls-label">Type</span>
+        <select id="ckType" aria-label="Type of variation"><option value="">All types</option>${types.map(([t, n]) => `<option value="${esc(t)}" ${t===ckFormType?'selected':''}>${esc(t)} (${n})</option>`).join('')}</select></div>`;
+    canExport = groups.length > 0;
+    body = groups.length ? groups.map(g => `
+        <div class="ck-group"><span class="gn">${esc(g.base)}</span><span class="gc">${g.all.filter(r => r.have).length} of ${g.all.length}</span></div>
+        ${g.rows.map(r => ckRowHTML(r.sp, r.have, r.type)).join('')}`).join('')
+      : `<div class="emptystate card">${ICONS.empty}<h3>Nothing to show</h3><p>${ckFormStatus==='missing' ? 'You have every variation that matches.' : ckFormStatus==='have' ? 'No variations match yet.' : 'No variations match.'}</p></div>`;
+  }
+  return `
+    <div class="pagehead"><div><h1>Checklists</h1><div class="sub">${sub}</div></div>
+      <button class="btn" data-nav="tools">← Tools</button></div>
+    <div class="import-controls">
+      <div class="import-controls-row"><span class="import-controls-label">List</span>
+        ${chip('ck-view','missing',ckView,'Pokémon I don’t have yet')}${chip('ck-view','forms',ckView,'Variations: have and missing')}</div>
+      ${controls}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px;">
+      <button class="btn" data-action="ck-export" data-how="copy" ${canExport?'':'disabled'}>Copy list</button>
+      <button class="btn" data-action="ck-export" data-how="txt" ${canExport?'':'disabled'}>Download checklist (text)</button>
+      <button class="btn" data-action="ck-export" data-how="csv" ${canExport?'':'disabled'}>Download CSV (spreadsheet)</button>
+    </div>
+    ${body}
   `;
 }
 
