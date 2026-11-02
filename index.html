@@ -189,6 +189,10 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .hl-badge-new{background:#d9a21b;}
 .hl-badge-update{background:#5b8bb5;}
 .hl-badge-imported{background:#7a7a7a;}
+.pocket.hl-better{box-shadow:0 0 0 3px #7b5cc4, 0 2px 6px rgba(0,0,0,.35);}
+.hl-better-badge{position:absolute;top:5px;left:50%;transform:translateX(-50%);z-index:5;font-size:8.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:10px;color:#fff;white-space:nowrap;background:linear-gradient(135deg,#7b5cc4,#3f8fc4);border:1px solid rgba(255,255,255,.55);cursor:pointer;font-family:inherit;}
+.hl-better-badge.under{top:21px;}
+.chip.hl-pg-better{border-color:#7b5cc4;}
 .hl-panel{padding:12px 14px;margin-bottom:12px;}
 .hl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
 .hl-title{font-family:var(--font-display);font-weight:600;font-size:15px;}
@@ -2410,6 +2414,7 @@ let reconcileReturnHash = '#/history';
 let importDetailFilter = 'all';
 let importDetailSort = 'recent';
 let lastToolStatus = { picks:0, pairs:0, diffs:0, total:0 };
+let binderHlBetter = new Map(); // species -> { pick, foils } where a foil of the same card as the regular binder card came in
 let binderHlAlts = new Map(); // species -> new non-pick cards (for the "replace?" icon); declared up here so a refresh on the Binder can't hit it uninitialised
 let dupSort = 'alpha';
 let importSelection = new Set();
@@ -2551,6 +2556,10 @@ document.addEventListener('click', (e) => {
   if(exBoxCopy){ copyBoxList(); return; }
   const exFilterBtn = e.target.closest('[data-action="extras-filter-mode"]');
   if(exFilterBtn){ extrasFilter.mode = exFilterBtn.dataset.value || ''; extrasPage = 1; render(); return; }
+  const betterOpen = e.target.closest('[data-action="binder-better"]');
+  if(betterOpen){ openBinderDecideModal(betterOpen.dataset.species, 'better'); return; }
+  const betterKeep = e.target.closest('[data-action="binder-better-keep"]');
+  if(betterKeep){ binderBetterKeep(betterKeep.dataset.species); closeModal(); toast('Keeping the regular card.'); render(); return; }
   const decideOpen = e.target.closest('[data-action="binder-decide"]');
   if(decideOpen){ openBinderDecideModal(decideOpen.dataset.species); return; }
   const decidePick = e.target.closest('[data-action="binder-decide-pick"]');
@@ -5200,6 +5209,7 @@ function binderHlItems(){
 function binderHighlights(){
   const out = new Map();
   binderHlAlts = new Map();
+  binderHlBetter = new Map();
   const items = binderHlItems();
   if(!items.length) return out;
   const decided = binderHlState().decided || {};
@@ -5227,10 +5237,42 @@ function binderHighlights(){
     binderHlAlts.set(sp, cards);
   });
   keptExtras.forEach(sp => { if(!out.has(sp)) out.set(sp, 'update'); });
+  binderHlBetter = binderBetterVersions(items);
   return out;
 }
+/* Pokémon whose binder card is a regular (non-foil) and where you now also own a foil/holofoil of the SAME card
+   (same set and card number) that came in with a highlighted import. Shown as a separate "better version" emblem. */
+function binderBetterVersions(items){
+  const out = new Map();
+  if(!items || !items.length) return out;
+  const hlIds = new Set(items.map(i => i.card.id));
+  const decided = binderHlState().decided || {};
+  foilRegularGroups().forEach(g => {
+    if(!g.species) return;
+    const pickId = STATE.picks[g.species];
+    const pick = g.regulars.find(c => c.id === pickId);
+    if(!pick) return;
+    const kept = decided[g.species] || [];
+    const foils = g.foils.filter(c => c.id !== pickId && !kept.includes(c.id));
+    if(!foils.length) return;
+    if(!(hlIds.has(pick.id) || foils.some(c => hlIds.has(c.id)))) return;
+    out.set(g.species, { pick, foils });
+  });
+  return out;
+}
+function binderBetterKeep(species){
+  binderHighlights();
+  const b = binderHlBetter.get(species);
+  const st = binderHlState();
+  const seen = new Set(st.decided[species] || []);
+  if(b) b.foils.forEach(c => seen.add(c.id));
+  st.decided[species] = [...seen];
+  persist('settings');
+}
 /* "Do I swap the new card in?" — a small chooser opened from the decide icon. */
-function openBinderDecideModal(species){
+function openBinderDecideModal(species, mode){
+  const better = mode === 'better';
+  const betterIds = new Set(better && binderHlBetter.get(species) ? binderHlBetter.get(species).foils.map(c => c.id) : []);
   const items = binderHlItems();
   const newIds = new Set(items.filter(i => i.status==='new').map(i => i.card.id));
   const pickId = STATE.picks[species];
@@ -5240,10 +5282,13 @@ function openBinderDecideModal(species){
       <div>
         <div class="set">${esc(c.set)} · #${esc(c.cardNumber)}${c.variance?(' · '+esc(c.variance)):''} · ${esc(c.condition)}</div>
         <div class="meta">Qty ${c.quantity}${c.marketPrice?' · $'+Number(c.marketPrice).toFixed(2):''}</div>
-        <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;">${c.id===pickId?'<span class="badge pick">★ In the binder now</span>':''}${newIds.has(c.id)?'<span class="badge new">NEW</span>':''}</div>
+        <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;">${c.id===pickId?'<span class="badge pick">★ In the binder now</span>':''}${newIds.has(c.id)?'<span class="badge new">NEW</span>':''}${betterIds.has(c.id)?'<span class="badge" style="background:#7b5cc4;color:#fff;">▲ Better version</span>':''}</div>
       </div>
       ${c.id===pickId ? '' : `<button class="btn sm primary" data-action="binder-decide-pick" data-species="${esc(species)}" data-card="${esc(c.id)}">Put this one in the binder</button>`}
     </div>`).join('');
+  if(better) return openModal(`${species}: a better version came in`,
+    `<p style="font-size:13.5px;">The card in your binder for ${esc(species)} is a regular, and you also have a holofoil of the same card. Pick the one you want in the binder; the other stays in your extras.</p>${rows}`,
+    `<button class="btn" data-action="binder-better-keep" data-species="${esc(species)}">Keep the regular one</button>`);
   openModal(`${species}: which card goes in the binder?`,
     pickId
       ? `<p style="font-size:13.5px;">You already have a card for ${esc(species)} in the binder, and a new one just came in. Pick the one you want in the binder; the others stay in your extras.</p>${rows}`
@@ -5329,17 +5374,23 @@ function binderHighlightPanelHTML(hl){
   const ids = winStart ? new Set() : binderHighlightedBatchIds();
   const kinds = [...hl.values()];
   const nNew = kinds.filter(k => k==='new').length, nDec = kinds.filter(k => k==='decide').length, nUpd = kinds.filter(k => k==='update').length, nImp = kinds.filter(k => k==='imported').length;
-  const rank = k => k==='new' ? 0 : k==='decide' ? 1 : k==='imported' ? 2 : 3;
+  const nBetter = binderHlBetter.size;
+  const rank = k => k==='new' ? 0 : k==='decide' ? 1 : k==='better' ? 1.5 : k==='imported' ? 2 : 3;
   const pages = new Map();
   hl.forEach((kind, sp) => {
     const slot = binderSlotBySpecies.get(sp); if(!slot) return;
     const cur = pages.get(slot.page);
     if(cur === undefined || rank(kind) < rank(cur)) pages.set(slot.page, kind);
   });
+  binderHlBetter.forEach((v, sp) => {
+    const slot = binderSlotBySpecies.get(sp); if(!slot) return;
+    const cur = pages.get(slot.page);
+    if(cur === undefined || rank('better') < rank(cur)) pages.set(slot.page, 'better');
+  });
   const pageList = [...pages.keys()].sort((a,b) => a-b);
   const next = pageList.find(pg => pg > binderPage) ?? pageList[0];
-  const summary = hl.size
-    ? `<strong>${fmtInt(nNew)}</strong> new to add${nDec ? ` · <strong>${fmtInt(nDec)}</strong> to decide (new card for a Pokémon already in the binder)` : ''}${nUpd ? ` · <strong>${fmtInt(nUpd)}</strong> updated` : ''}${nImp ? ` · <strong>${fmtInt(nImp)}</strong> from older imports (new or updated unknown)` : ''} · on <strong>${fmtInt(pageList.length)}</strong> page${pageList.length===1?'':'s'}`
+  const summary = (hl.size || nBetter)
+    ? `<strong>${fmtInt(nNew)}</strong> new to add${nDec ? ` · <strong>${fmtInt(nDec)}</strong> to decide (new card for a Pokémon already in the binder)` : ''}${nUpd ? ` · <strong>${fmtInt(nUpd)}</strong> updated` : ''}${nBetter ? ` · <strong>${fmtInt(nBetter)}</strong> with a <span style="color:#7b5cc4;font-weight:700;">▲ better version</span> (a holofoil of the same card as your regular)` : ''}${nImp ? ` · <strong>${fmtInt(nImp)}</strong> from older imports (new or updated unknown)` : ''} · on <strong>${fmtInt(pageList.length)}</strong> page${pageList.length===1?'':'s'}`
     : (winStart ? 'Nothing in the binder matches this window (' + binderHlWindowLabel() + '). Cards that are extras, or still need a binder pick, are not highlighted.' : ids.size ? 'Nothing from the ticked imports sits in the binder. Their cards are extras, or still need a binder pick (see Tools).' : 'Nothing highlighted. Tick an import below to see where its cards go.');
   return `
     <div class="card hl-panel">
@@ -5455,12 +5506,14 @@ function renderPocket(slot, editMode, selection, hl){
   const taxLabel = sp ? taxBreadcrumb(sp) : '';
   const fromName = sp ? evolvesFrom(sp) : null;
   const mark = hl ? hl.get(slot.display) : null;
-  const cls = ['pocket', owned?'owned':'missing', pick?'haspick':'', mark?'hl-'+mark:''].join(' ').trim();
+  const betterInfo = binderHlBetter.get(slot.display) || null;
+  const cls = ['pocket', owned?'owned':'missing', pick?'haspick':'', mark?'hl-'+mark:(betterInfo?'hl-better':'')].join(' ').trim();
   const nAlt = (binderHlAlts.get(slot.display) || []).length;
   const markLabel = { new:['✦ NEW','New from a recent import: add it to the binder'], decide:['⇄ REPLACE?', `${nAlt} new card${nAlt===1?'':'s'} for this Pokémon came in with a recent import. Tap to decide whether to swap ${nAlt===1?'it':'one'} into the binder.`], update:['↻ UPDATED','Updated by a recent import (quantity or price changed)'], imported:['● IMPORTED','Came in with a recent import (older import: not known whether new or updated)'] }[mark];
   return `
     <div class="${cls}" data-nav-species="${esc(slot.display)}">
       ${mark ? (mark==='decide' ? `<button class="hl-badge hl-badge-decide" data-action="binder-decide" data-species="${esc(slot.display)}" title="${esc(markLabel[1])}">${markLabel[0]}</button>` : `<span class="hl-badge hl-badge-${mark}" title="${esc(markLabel[1])}">${markLabel[0]}</span>`) : ''}
+      ${betterInfo ? `<button class="hl-better-badge ${mark?'under':''}" data-action="binder-better" data-species="${esc(slot.display)}" title="Better version: your binder card is a regular, and you also have a holofoil of the same card. Tap to choose." aria-label="Better version available for ${esc(slot.display)}">▲ BETTER</button>` : ''}
       ${owned && sp ? `<div class="pocket-art">${speciesImgTag(sp,'pocket-img')}</div>` : ''}
       <div class="pocket-overlay">
         <div class="top">
