@@ -683,6 +683,40 @@ a.btn, a.btn:hover{text-decoration:none;}
 .boxrow-info{flex:1;min-width:0;}
 .boxrow-sub{font-size:12px;color:var(--ink-soft);overflow-wrap:anywhere;}
 .badge.new-b{background:#f4e7cd;color:var(--brass);}
+
+/* ===== Screen overhaul (Nov 2026) ===== */
+/* 1. Thumb-sized tap targets on phones and touch screens (Apple recommends ~44px; small controls get an invisible larger hit area). */
+@media (pointer:coarse), (max-width:820px){
+  .btn{min-height:44px;}
+  .btn.sm{min-height:40px;padding:8px 13px;font-size:13px;}
+  .chip{min-height:40px;padding:8px 14px;}
+  .chip.sm{min-height:36px;padding:7px 12px;}
+  .iconbtn{min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;}
+  .iconbtn.sm{min-width:40px;min-height:40px;}
+  .iconbtn.xs{min-width:0;min-height:0;position:relative;}
+  .iconbtn.xs::after{content:"";position:absolute;inset:-14px;}
+  .starbtn{min-height:40px;}
+  .badge.dupwarn[data-nav]{padding:7px 10px;}
+  input[type=checkbox]{width:22px;height:22px;}
+  .tx-actions{gap:2px;}
+}
+/* 2. Binder pocket labels (NEW / REPLACE? / BETTER) sit on the top edge instead of covering the Dex number. */
+.pocket[class*="hl-"] .top{padding-top:20px;}
+.hl-badge,.hl-better-badge{top:0;border-top-left-radius:0;border-top-right-radius:0;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+.hl-better-badge.under{top:auto;bottom:0;border-radius:8px 8px 0 0;}
+/* 3. Dashboard: a lone last tile fills the row instead of leaving a blank half. */
+.kpirow>.kpi:last-child:nth-child(odd){grid-column:1/-1;}
+@media (min-width:700px){ .kpirow>.kpi:last-child:nth-child(odd){grid-column:auto;} }
+/* 4. Small text buttons that looked like plain text now read as buttons. */
+.fa-legend .btn.ghost{border-color:var(--line-strong);background:var(--paper-raised);}
+.fa-legend{align-items:center;gap:8px 10px;}
+/* 5. Collapsible "Recently imported" box. */
+.hl-body[hidden]{display:none;}
+.hl-toggle{display:inline-flex;align-items:center;gap:6px;}
+@media (pointer:coarse), (max-width:820px){ .crumbs .c{display:inline-block;padding:10px 4px;} .badge.dupwarn[data-nav]{padding:9px 10px;} }
+/* 6. Calm focus ring for keyboard and switch users. */
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px;}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -762,19 +796,39 @@ function typeSortIndex(t){
   const i = TYPE_SORT_ORDER.indexOf(t);
   return i===-1 ? TYPE_SORT_ORDER.length : i;
 }
+/* Paradox Pokémon and the modern Pokémon they are based on. When the "Paradox order" switch is on (Page balance tool),
+   each one is filed beside its modern Pokémon: Ancient first, then the modern line, then the Future one. */
+const PARADOX_TABLE = {
+  'Great Tusk':{kind:'ancient',family:'Phanpy'}, 'Iron Treads':{kind:'future',family:'Phanpy'},
+  'Scream Tail':{kind:'ancient',family:'Igglybuff'}, 'Brute Bonnet':{kind:'ancient',family:'Foongus'},
+  'Flutter Mane':{kind:'ancient',family:'Misdreavus'}, 'Slither Wing':{kind:'ancient',family:'Larvesta'}, 'Iron Moth':{kind:'future',family:'Larvesta'},
+  'Sandy Shocks':{kind:'ancient',family:'Magnemite'}, 'Roaring Moon':{kind:'ancient',family:'Bagon'},
+  'Walking Wake':{kind:'ancient',family:'Suicune'}, 'Gouging Fire':{kind:'ancient',family:'Entei'}, 'Raging Bolt':{kind:'ancient',family:'Raikou'},
+  'Iron Bundle':{kind:'future',family:'Delibird'}, 'Iron Hands':{kind:'future',family:'Makuhita'}, 'Iron Jugulis':{kind:'future',family:'Deino'},
+  'Iron Thorns':{kind:'future',family:'Larvitar'}, 'Iron Valiant':{kind:'future',family:'Ralts'}, 'Iron Leaves':{kind:'future',family:'Virizion'},
+  'Iron Boulder':{kind:'future',family:'Terrakion'}, 'Iron Crown':{kind:'future',family:'Cobalion'},
+};
+window.__PARADOX_LINKS = null;   // the app switches this on from its settings (Tools › Page balance)
 function sortByFamilyThenEvo(list){
+  const PX = window.__PARADOX_LINKS || null;
+  const names = PX ? new Set(list.map(s => s.evoFamily || s.name)) : null;
+  const para = new Set();
   const byFam = new Map();
   for(const s of list){
-    const fam = s.evoFamily || s.name;
+    let fam = s.evoFamily || s.name;
+    const link = PX && PX[s.name];
+    if(link && names.has(link.family)){ fam = link.family; para.add(s.name); }
     if(!byFam.has(fam)) byFam.set(fam, []);
     byFam.get(fam).push(s);
   }
+  const eo = m => para.has(m.name) ? (PX[m.name].kind === 'ancient' ? -1 : 999) : (m.evoOrder||0);
   const families = [...byFam.values()].map(members => {
-    const ordered = members.slice().sort((a,b) => (a.evoOrder||0)-(b.evoOrder||0) || (members[0].evoFamily==='Eevee' ? a.name.localeCompare(b.name) : 0));
-    const base = ordered.find(m=>!m.variant) || ordered[0];
+    const ordered = members.slice().sort((a,b) => eo(a)-eo(b) || (members[0].evoFamily==='Eevee' ? a.name.localeCompare(b.name) : 0));
+    const plain = ordered.filter(m => !para.has(m.name));
+    const base = plain.find(m=>!m.variant) || plain[0] || ordered[0];
     // Final evolution = the highest stage among the regular (non-variant) members, so Mega / regional / costume
-    // forms don't count. A line that branches (Eevee, Tyrogue...) uses its alphabetically first final.
-    const core = ordered.filter(m=>!m.variant), pool = core.length ? core : ordered;
+    // forms (and Paradox look-alikes) don't count. A line that branches (Eevee, Tyrogue...) uses its alphabetically first final.
+    const core = plain.filter(m=>!m.variant), pool = core.length ? core : (plain.length ? plain : ordered);
     const top = Math.max(...pool.map(m => m.evoOrder||0));
     const finalName = pool.filter(m => (m.evoOrder||0) === top).map(m => m.name).sort((a,b) => a.localeCompare(b))[0];
     return { members: ordered, base, finalName, type: (base.types && base.types[0]) || '' };
@@ -1041,6 +1095,7 @@ function displayGeneration(g){
 }
 
 /* ---------------- persistent state ---------------- */
+let finMemo = null;   // cached finish/duplicate analysis; cleared whenever the collection is saved or the screen redraws
 const LS_KEYS = {
   collection: 'pkmn.collection',
   picks: 'pkmn.binderPicks',
@@ -1413,6 +1468,7 @@ function openRenameSpeciesModal(name){
 
 // Apply any saved recategorizations onto SPECIES before anything else reads it,
 // then recompute the binder layout so it reflects them from the first render.
+window.__PARADOX_LINKS = (STATE.settings && STATE.settings.paradoxOrder) ? PARADOX_TABLE : null;
 applySpeciesDeletions();
 applySpeciesRenames();
 Object.keys(STATE.categoryOverrides).forEach(nm => {
@@ -1451,6 +1507,7 @@ function taxBreadcrumb(s){
 }
 
 function persist(part){
+  if(part==='collection'){ finMemo = null; }
   if(part==='collection') saveJSON(LS_KEYS.collection, STATE.collection);
   else if(part==='picks') saveJSON(LS_KEYS.picks, STATE.picks);
   else if(part==='history') saveJSON(LS_KEYS.history, STATE.history);
@@ -1625,9 +1682,11 @@ function restoreRemovedCards(ids){
 function toolsStatus(){
   const d = collectrDiscrepancies();
   const picks = speciesNeedingPickReconciliation().length;
-  const pairs = foilRegularGroups().length;
+  const fi = finishInfo();
+  const pairs = fi.pairs.length + fi.holoRev.length + fi.clashes.length;
   const diffs = d.inAppOnly.length + d.inCollectrOnly.length;
-  return { picks, pairs, diffs, total: picks + pairs + diffs };
+  const shortN = shortPagesList().length;
+  return { picks, pairs, diffs, shortN, total: picks + pairs + diffs + shortN };
 }
 
 /* "regular" | "foil" | "other" from Collectr's Variance text. */
@@ -1637,28 +1696,75 @@ function finishKind(variance){
   if(v.includes('holo') || v.includes('foil')) return 'foil';
   return 'other';
 }
-/* Every card where you own BOTH a foil and a regular of the same card
-   (same species + set + card number). Returns one entry per card. */
-function foilRegularGroups(){
+/* ---------------- Finishes & duplicates ----------------
+   Finish "tiers" (higher = the nicer copy):  0 Regular (Normal / Unlimited / 1st Edition, no foil)
+   1 Reverse holofoil     2 Holofoil / foil.
+   Cards are matched as "the same card" by Pokémon + set + the card's own number (the part before the "/",
+   with leading zeros ignored, so 066/217 and 66/217 count as the same card). */
+function finishTier(variance){
+  const v = norm(variance||'');
+  if(/\bnon[- ]?(holo|foil)/.test(v)) return 0;
+  if(v.includes('reverse')) return 1;
+  if(v.includes('holo') || v.includes('foil')) return 2;
+  return 0;
+}
+const FINISH_TIER_NAME = ['Regular','Reverse holofoil','Holofoil'];
+function cardNoKey(n){ return String(n==null?'':n).split('/')[0].trim().toLowerCase().replace(/^0+(?=\d)/,''); }
+function finishInfo(){
+  if(finMemo) return finMemo;
   const groups = new Map();
   STATE.collection.forEach(c => {
     const who = c.species || c.productName;
     if(!who || !c.set || !c.cardNumber) return;
-    const key = [norm(who), norm(c.set), norm(c.cardNumber)].join('|');
-    if(!groups.has(key)) groups.set(key, { species:c.species||null, name:who, set:c.set, cardNumber:c.cardNumber, regulars:[], foils:[] });
-    const g = groups.get(key), kind = finishKind(c.variance);
-    if(kind==='regular') g.regulars.push(c); else if(kind==='foil') g.foils.push(c);
+    const key = [norm(who), norm(c.set), cardNoKey(c.cardNumber)].join('|');
+    if(!groups.has(key)) groups.set(key, { key, species:c.species||null, name:who, set:c.set, cardNumber:c.cardNumber, regulars:[], reverses:[], holos:[], foils:[], all:[] });
+    const g = groups.get(key), t = finishTier(c.variance);
+    g.all.push(c);
+    if(t===0) g.regulars.push(c); else { (t===1 ? g.reverses : g.holos).push(c); g.foils.push(c); }
   });
-  return [...groups.values()].filter(g => g.regulars.length && g.foils.length);
+  const all = [...groups.values()];
+  // (1) a regular AND a foil/reverse/holo of the same card
+  const pairs = all.filter(g => g.regulars.length && g.foils.length);
+  // (2) a reverse holofoil AND a holofoil of the same card
+  const holoRev = all.filter(g => g.reverses.length && g.holos.length);
+  // (3) exact copies: same card, same finish, owned more than once (quantity 2+, or logged on separate lines)
+  const exact = [];
+  all.forEach(g => {
+    const by = new Map();
+    g.all.forEach(c => { const k = norm(c.variance||'regular'); if(!by.has(k)) by.set(k, []); by.get(k).push(c); });
+    by.forEach(list => {
+      const qty = list.reduce((a,c) => a + (Number(c.quantity)||0), 0);
+      if(qty > 1) exact.push({ species:g.species, name:g.name, set:g.set, cardNumber:g.cardNumber, variance:list[0].variance||'Regular', qty, records:list });
+    });
+  });
+  // (4) data check: the same set + card number logged for two different Pokémon (one of them has a wrong number or name)
+  const bySlot = new Map();
+  STATE.collection.forEach(c => {
+    if(!c.set || !c.cardNumber || !c.species) return;
+    const k = norm(c.set) + '|' + cardNoKey(c.cardNumber);
+    if(!bySlot.has(k)) bySlot.set(k, []);
+    bySlot.get(k).push(c);
+  });
+  const clashes = [];
+  bySlot.forEach(list => { if(new Set(list.map(c => c.species)).size > 1) clashes.push({ set:list[0].set, cardNumber:list[0].cardNumber, cards:list }); });
+  const label = new Map();   // cardId -> short badge text
+  holoRev.forEach(g => g.all.forEach(c => label.set(c.id, 'Holo + reverse')));
+  pairs.forEach(g => g.all.forEach(c => label.set(c.id, 'Foil + regular')));
+  finMemo = { all, pairs, holoRev, exact, clashes, label };
+  return finMemo;
 }
-function foilRegularCardIds(){
-  const ids = new Set();
-  foilRegularGroups().forEach(g => { g.regulars.forEach(c => ids.add(c.id)); g.foils.forEach(c => ids.add(c.id)); });
-  return ids;
-}
+/* Every card where you own BOTH a foil (any kind) and a regular of the same card. One entry per card. */
+function foilRegularGroups(){ return finishInfo().pairs; }
+/* Every card where you own both the reverse holofoil and the holofoil of the same card. */
+function holoReverseGroups(){ return finishInfo().holoRev; }
+/* Ids of every card involved in one of the pair checks above (drives the badge + the import filter). */
+function foilRegularCardIds(){ return new Set(finishInfo().label.keys()); }
 function dupBadgeHTML(c, dupMap, pairSet){
+  const fi = finishInfo();
   if(pairSet && pairSet.has(c.id)){
-    return `<span class="badge dupwarn" data-nav="duplicates" style="cursor:pointer;" title="You own both a foil and a regular of this card. Tap to see them all in one place.">⚠ Foil + regular</span>`;
+    const lab = fi.label.get(c.id) || 'Foil + regular';
+    const tip = lab === 'Holo + reverse' ? 'You own both the holofoil and the reverse holofoil of this card. Tap to see them all in one place.' : 'You own both a foil and a regular of this card. Tap to see them all in one place.';
+    return `<span class="badge dupwarn" data-nav="duplicates" style="cursor:pointer;" title="${tip}">⚠ ${lab}</span>`;
   }
   const g = dupMap ? dupMap.get(c.id) : null;
   if(!g) return '';
@@ -1670,7 +1776,7 @@ function finishDuplicateGroups(){
   const groups = new Map();
   STATE.collection.forEach(c => {
     if(!c.species || !c.set || !c.cardNumber) return;
-    const key = [norm(c.species), norm(c.set), norm(c.cardNumber)].join('|');
+    const key = [norm(c.species), norm(c.set), cardNoKey(c.cardNumber)].join('|');
     if(!groups.has(key)) groups.set(key, []);
     groups.get(key).push(c);
   });
@@ -2354,7 +2460,7 @@ const ROUTES = [
   { id:'settings', label:'Settings', icon:'settings', group:'Manage' },
 ];
 // Tools is a hub: these pages all live under it in the menu.
-const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist'];
+const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist','balance','forms'];
 // The bottom tabbar only has room for a handful of tabs before they either
 // get crammed or require horizontal scrolling to discover. These four cover
 // the screens used day-to-day; everything else lives behind "More".
@@ -2425,6 +2531,7 @@ function render(){
   LAST_ROUTE_KEY = routeKey;
   faMemo = null;   // full-art symbols are recalculated on every redraw
   ckMemo = null;
+  finMemo = null;
 
   // Preserve focus + cursor position across the innerHTML rebuild below, so
   // typing in a search box doesn't dismiss the on-screen keyboard on every
@@ -2449,6 +2556,8 @@ function render(){
     binders: renderBindersRoute,
     sections: renderSections,
     duplicates: renderDuplicates,
+    balance: renderBalance,
+    forms: renderForms,
     tools: renderTools,
     picks: renderPicksTool,
     fullart: renderFullArtTool,
@@ -2707,6 +2816,43 @@ document.addEventListener('click', (e) => {
   }
   const cdRestoreAll = e.target.closest('[data-action="collectr-restore-all"]');
   if(cdRestoreAll){ const n = restoreRemovedCards(collectrDiscrepancies().inCollectrOnly.map(e2 => e2.id)); toast(`${n} card${n===1?'':'s'} added back.`); render(); return; }
+  const hlTog = e.target.closest('[data-action="hl-toggle"]');
+  if(hlTog){ STATE.settings.hlOpen = !STATE.settings.hlOpen; persist('settings'); render(); return; }
+  const balApply = e.target.closest('[data-action="balance-apply"]');
+  if(balApply){
+    const mv = BALANCE_MOVES.find(m => m.id === balApply.dataset.id);
+    if(mv && balanceMoveState(mv) === 'pending'){ moveSpeciesTo(mv.names, mv.toGroup, mv.toCat, mv.toSub); toast(mv.names.length + ' moved to ' + (mv.toSub === '—' ? mv.toCat : mv.toSub) + '.'); }
+    render(); return;
+  }
+  const balAll = e.target.closest('[data-action="balance-apply-all"]');
+  if(balAll){
+    const pending = BALANCE_MOVES.filter(m => balanceMoveState(m) === 'pending');
+    confirmAction('Apply all ' + pending.length + ' suggested moves? Each one is logged in the Pokémon\u2019s Category history so you can move it back.', () => {
+      pending.forEach(mv => { mv.names.forEach(nm => { const sp = speciesByName.get(nm); if(!sp) return; Object.assign(sp, { group:mv.toGroup, category:mv.toCat, subcategory:mv.toSub }); const base = ORIGINAL_PLACEMENT.get(sp.id); if(base && placementKey(base) === placementKey(sp)) delete STATE.categoryOverrides[nm]; else STATE.categoryOverrides[nm] = { group:mv.toGroup, category:mv.toCat, subcategory:mv.toSub }; }); });
+      persist('categoryOverrides'); rebuildBinder(); render();
+    }, 'Moves applied.');
+    return;
+  }
+  const pxToggle = e.target.closest('[data-action="paradox-toggle"]');
+  if(pxToggle){
+    STATE.settings.paradoxOrder = !STATE.settings.paradoxOrder;
+    window.__PARADOX_LINKS = STATE.settings.paradoxOrder ? PARADOX_TABLE : null;
+    persist('settings'); rebuildBinder(); render(); return;
+  }
+  const pxMove = e.target.closest('[data-action="paradox-move"]');
+  if(pxMove){
+    const nm = pxMove.dataset.name, link = PARADOX_TABLE[nm], mate = SPECIES.find(x => x.evoFamily === link.family && !x.variant);
+    if(mate){ moveSpeciesTo([nm], mate.group, mate.category, mate.subcategory); toast(nm + ' moved beside ' + link.family + '.'); }
+    render(); return;
+  }
+  const formsRm = e.target.closest('[data-action="forms-remove"]');
+  if(formsRm){
+    const nm = formsRm.dataset.name;
+    confirmAction('Remove ' + nm + ' from the app? It has no printed card yet. You can restore it later from Settings.', () => { deleteSpecies(nm, null); render(); }, nm + ' removed.');
+    return;
+  }
+  const dupViewBtn = e.target.closest('[data-action="dup-view"]');
+  if(dupViewBtn){ dupView = dupViewBtn.dataset.value; render(); return; }
   const dupSortBtn = e.target.closest('[data-action="dup-sort"]');
   if(dupSortBtn){ dupSort = dupSortBtn.dataset.value; render(); return; }
   const dupRemoveBtn = e.target.closest('[data-action="dup-remove"]');
@@ -5247,13 +5393,14 @@ function binderBetterVersions(items){
   if(!items || !items.length) return out;
   const hlIds = new Set(items.map(i => i.card.id));
   const decided = binderHlState().decided || {};
-  foilRegularGroups().forEach(g => {
-    if(!g.species) return;
+  finishInfo().all.forEach(g => {
+    if(!g.species || g.all.length < 2) return;
     const pickId = STATE.picks[g.species];
-    const pick = g.regulars.find(c => c.id === pickId);
+    const pick = g.all.find(c => c.id === pickId);
     if(!pick) return;
+    const pickTier = finishTier(pick.variance);
     const kept = decided[g.species] || [];
-    const foils = g.foils.filter(c => c.id !== pickId && !kept.includes(c.id));
+    const foils = g.all.filter(c => c.id !== pickId && finishTier(c.variance) > pickTier && !kept.includes(c.id));
     if(!foils.length) return;
     if(!(hlIds.has(pick.id) || foils.some(c => hlIds.has(c.id)))) return;
     out.set(g.species, { pick, foils });
@@ -5287,8 +5434,8 @@ function openBinderDecideModal(species, mode){
       ${c.id===pickId ? '' : `<button class="btn sm primary" data-action="binder-decide-pick" data-species="${esc(species)}" data-card="${esc(c.id)}">Put this one in the binder</button>`}
     </div>`).join('');
   if(better) return openModal(`${species}: a better version came in`,
-    `<p style="font-size:13.5px;">The card in your binder for ${esc(species)} is a regular, and you also have a holofoil of the same card. Pick the one you want in the binder; the other stays in your extras.</p>${rows}`,
-    `<button class="btn" data-action="binder-better-keep" data-species="${esc(species)}">Keep the regular one</button>`);
+    `<p style="font-size:13.5px;">The card in your binder for ${esc(species)} is the ${esc(String((binderHlBetter.get(species)&&binderHlBetter.get(species).pick&&binderHlBetter.get(species).pick.variance)||'regular').toLowerCase())} copy, and you also have a nicer finish of the same card. Pick the one you want in the binder; the other stays in your extras.</p>${rows}`,
+    `<button class="btn" data-action="binder-better-keep" data-species="${esc(species)}">Keep the current one</button>`);
   openModal(`${species}: which card goes in the binder?`,
     pickId
       ? `<p style="font-size:13.5px;">You already have a card for ${esc(species)} in the binder, and a new one just came in. Pick the one you want in the binder; the others stay in your extras.</p>${rows}`
@@ -5370,6 +5517,7 @@ function extrasHighlightPanelHTML(rows, status){
 function binderHighlightPanelHTML(hl){
   const imports = STATE.history.filter(b => !b.cardsDeleted);
   if(!imports.length) return '';
+  const hlOpen = !!STATE.settings.hlOpen;
   const winStart = binderHlWindowStart();
   const ids = winStart ? new Set() : binderHighlightedBatchIds();
   const kinds = [...hl.values()];
@@ -5399,11 +5547,14 @@ function binderHighlightPanelHTML(hl){
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${pageList.length ? `<button class="btn sm primary" data-goto-binder="${next}">Next page to update → Pg ${next}</button>` : ''}
           ${ids.size ? `<button class="btn sm" data-action="binder-hl-done">Mark all as placed</button>` : ''}
+          <button class="btn sm ghost hl-toggle" data-action="hl-toggle" aria-expanded="${hlOpen}">${hlOpen ? 'Hide details' : 'Show details'}</button>
         </div>
       </div>
+      <div class="hl-body" ${hlOpen ? '' : 'hidden'}>
       ${binderHlWindowControlsHTML()}
       ${winStart ? '' : `<div class="import-chip-scroll" style="margin-top:8px;">${imports.map(b => `<button class="chip ${ids.has(b.id)?'active':''}" data-action="binder-hl-toggle" data-batch="${esc(b.id)}" title="${esc(new Date(b.date).toLocaleString())}">${esc(b.filename||'Import')} · ${esc(new Date(b.date).toLocaleDateString())} ${esc(new Date(b.date).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}))}</button>`).join('')}</div>`}
       ${pageList.length ? `<div class="hl-pages"><span class="import-controls-label">Pages</span>${pageList.map(pg => `<button class="chip sm hl-pg hl-pg-${pages.get(pg)}" data-goto-binder="${pg}">${pg}</button>`).join('')}</div>` : ''}
+      </div>
     </div>`;
 }
 
@@ -5513,7 +5664,7 @@ function renderPocket(slot, editMode, selection, hl){
   return `
     <div class="${cls}" data-nav-species="${esc(slot.display)}">
       ${mark ? (mark==='decide' ? `<button class="hl-badge hl-badge-decide" data-action="binder-decide" data-species="${esc(slot.display)}" title="${esc(markLabel[1])}">${markLabel[0]}</button>` : `<span class="hl-badge hl-badge-${mark}" title="${esc(markLabel[1])}">${markLabel[0]}</span>`) : ''}
-      ${betterInfo ? `<button class="hl-better-badge ${mark?'under':''}" data-action="binder-better" data-species="${esc(slot.display)}" title="Better version: your binder card is a regular, and you also have a holofoil of the same card. Tap to choose." aria-label="Better version available for ${esc(slot.display)}">▲ BETTER</button>` : ''}
+      ${betterInfo ? `<button class="hl-better-badge ${mark?'under':''}" data-action="binder-better" data-species="${esc(slot.display)}" title="Better version: you also have a nicer finish (reverse holofoil or holofoil) of the same card as the one in your binder. Tap to choose." aria-label="Better version available for ${esc(slot.display)}">▲ BETTER</button>` : ''}
       ${owned && sp ? `<div class="pocket-art">${speciesImgTag(sp,'pocket-img')}</div>` : ''}
       <div class="pocket-overlay">
         <div class="top">
@@ -6287,7 +6438,7 @@ function renderImportDetail(ids){
         ${chip('import-sort','recent',importDetailSort,'Most recent import')}${chip('import-sort','alpha',importDetailSort,'A–Z')}${chip('import-sort','binder',importDetailSort,'Binder order')}
       </div>
       <div class="import-controls-row"><span class="import-controls-label">Show</span>
-        ${chip('import-filter','all',importDetailFilter,'All ('+fmtInt(items.length)+')')}${chip('import-filter','new',importDetailFilter,'New ('+fmtInt(nNew)+')')}${chip('import-filter','update',importDetailFilter,'Updated ('+fmtInt(nUpd)+')')}${nOld ? chip('import-filter','older',importDetailFilter,'Older cards ('+fmtInt(nOld)+')') : ''}${nUnk ? chip('import-filter','unknown',importDetailFilter,'Older imports, no label ('+fmtInt(nUnk)+')') : ''}${chip('import-filter','pair',importDetailFilter,'Foil + regular ('+fmtInt(nPair)+')')}
+        ${chip('import-filter','all',importDetailFilter,'All ('+fmtInt(items.length)+')')}${chip('import-filter','new',importDetailFilter,'New ('+fmtInt(nNew)+')')}${chip('import-filter','update',importDetailFilter,'Updated ('+fmtInt(nUpd)+')')}${nOld ? chip('import-filter','older',importDetailFilter,'Older cards ('+fmtInt(nOld)+')') : ''}${nUnk ? chip('import-filter','unknown',importDetailFilter,'Older imports, no label ('+fmtInt(nUnk)+')') : ''}${chip('import-filter','pair',importDetailFilter,'Duplicate finishes ('+fmtInt(nPair)+')')}
       </div>
       <div class="import-controls-row"><span class="import-controls-label">Imports</span>
         <div class="import-chip-scroll">${STATE.history.map(b => `<button class="chip ${idList.split(',').includes(b.id)?'active':''}" data-action="toggle-detail-import" data-batch="${esc(b.id)}" title="${esc(new Date(b.date).toLocaleString())}">${esc(b.filename||'Import')} · ${esc(new Date(b.date).toLocaleDateString())}</button>`).join('')}</div>
@@ -6331,6 +6482,7 @@ function deleteImportCards(arg){
    ============================================================ */
 function renderTools(){
   const st = toolsStatus();
+  const fi0 = finishInfo();
   const d = collectrDiscrepancies();
   const tool = (route, icon, title, desc, n, statusText) => `
     <button class="card toolcard" data-nav="${route}">
@@ -6351,7 +6503,139 @@ function renderTools(){
     ${tool('picks','star','Binder picks','Pokémon with more than one card that still need you to choose which goes in the binder.',st.picks, st.picks ? `${fmtInt(st.picks)} Pokémon need a pick` : 'All set')}
     ${tool('checklist','check','Checklists','Pokémon you don’t have yet in A–Z order, plus every variation you have or are missing (Floette colours, regional forms and so on). Copy or download them.',0,ckStatusText())}
     ${tool('fullart','photo','Not full art','Which Pokémon have no full-art card printed anywhere, which you can still look for, and which of your cards aren’t full art. Also turns on the full-art symbols in the binder.',0,fullArtStatusText())}
-    ${tool('duplicates','dupes','Foil + Regular','Cards where you own both a foil and a regular of the same card.',st.pairs, st.pairs ? `${fmtInt(st.pairs)} card${st.pairs===1?'':'s'} to review` : 'None found')}
+    ${tool('balance','binder','Page balance','Binder pages that are one Pokémon or less than half full, with a reviewed set of moves to fix them, and the ancient / modern / future ordering for Paradox Pokémon.',shortPagesList().length, shortPagesList().length ? `${fmtInt(shortPagesList().length)} short page${shortPagesList().length===1?'':'s'}` : 'No short pages')}
+    ${tool('forms','check','Forms check','Pokémon with no printed card yet, and forms worth double-checking against the real cards.',0,'Open')}
+    ${tool('duplicates','dupes','Duplicates & finishes','Regular + foil of the same card, holofoil + reverse holofoil, exact copies, and card-number slips — all checked in one place.',st.pairs, st.pairs ? `${fmtInt(fi0.pairs.length)} regular + foil · ${fmtInt(fi0.holoRev.length)} holo + reverse${fi0.clashes.length ? ` · ${fmtInt(fi0.clashes.length)} data slip` : ''}` : `None to review · ${fmtInt(fi0.exact.length)} exact-copy entries`)}
+  `;
+}
+
+
+/* ============================================================
+   Page balance — finds binder pages that are only one Pokémon, or less than half full (4 pockets or fewer),
+   and offers a reviewed set of moves that removes every one of them. Nothing moves until you tap Apply.
+   ============================================================ */
+const BALANCE_MOVES = [{"id": "Farfetch'd trio", "names": ["Farfetch'd", "Galarian Farfetch'd", "Sirfetch'd"], "fromCat": "Birds", "fromSub": "Songbirds & Perching Birds", "toGroup": "Animals & Real-World Creatures", "toCat": "Birds", "toSub": "Waterbirds & Seabirds", "why": "Farfetch'd is a wild duck carrying a leek, so it sits better with the water birds."}, {"id": "Chatot", "names": ["Chatot"], "fromCat": "Birds", "fromSub": "Songbirds & Perching Birds", "toGroup": "Animals & Real-World Creatures", "toCat": "Birds", "toSub": "Parrots & Tropical Birds", "why": "A parrot-like bird with a music-note tail."}, {"id": "Gligar line", "names": ["Gligar", "Gliscor"], "fromCat": "Mammals - Land", "fromSub": "Bats", "toGroup": "Animals & Real-World Creatures", "toCat": "Insects & Arthropods", "toSub": "Other Insects & Arthropods", "why": "Flying scorpions. Skorupi and Drapion (scorpions) are already in Other Insects & Arthropods."}, {"id": "Absol->Sheep", "names": ["Absol", "Mega Absol"], "fromCat": "Mammals - Land", "fromSub": "Cats & Felines", "toGroup": "Animals & Real-World Creatures", "toCat": "Mammals - Land", "toSub": "Sheep & Goats", "why": "Goat-like horn, beard and white mane. (Dogs, Wolves & Hyenas also works.)"}, {"id": "Calyrex->Horses", "names": ["Calyrex", "Calyrex (Ice Rider)", "Calyrex (Shadow Rider)"], "fromCat": "Mammals - Land", "fromSub": "Rabbits & Hares", "toGroup": "Animals & Real-World Creatures", "toCat": "Mammals - Land", "toSub": "Horses", "why": "Calyrex rides Glastrier and Spectrier, which are already in Horses."}, {"id": "Rhyhorn->Dino", "names": ["Rhyhorn", "Rhydon", "Rhyperior"], "fromCat": "Mammals - Land", "fromSub": "Spiny Mammals", "toGroup": "Animals & Real-World Creatures", "toCat": "Reptiles", "toSub": "Dinosaurs & Pterosaurs", "why": "Rhydon is a bipedal, reptilian rhino. (Large Mammals also works if you prefer rhinos with the big mammals.)"}, {"id": "Tepig->Fighting", "names": ["Tepig", "Pignite", "Emboar", "Mega Emboar"], "fromCat": "Mammals - Land", "fromSub": "Pigs & Swine", "toGroup": "Mythical, Spectral & Humanoid Beings", "toCat": "Humanoid & Folk Beings", "toSub": "Fighting Humanoids", "why": "Emboar is a brawling pig-man fighter."}, {"id": "Swinub->Large", "names": ["Swinub", "Piloswine", "Mamoswine"], "fromCat": "Mammals - Land", "fromSub": "Pigs & Swine", "toGroup": "Animals & Real-World Creatures", "toCat": "Mammals - Land", "toSub": "Large Mammals", "why": "Mamoswine is a mammoth, so the line fits the big mammals."}, {"id": "Turtonator->Dragons", "names": ["Turtonator"], "fromCat": "Reptiles", "fromSub": "Turtles & Tortoises", "toGroup": "Mythical, Spectral & Humanoid Beings", "toCat": "Dragons", "toSub": "—", "why": "A turtle with a dragon's head and a gunpowder shell (it is also a Dragon type)."}, {"id": "Froslass->Spectral", "names": ["Froslass", "Mega Froslass"], "fromCat": "Elemental & Geological", "fromSub": "Ice Creatures", "toGroup": "Mythical, Spectral & Humanoid Beings", "toCat": "Spectral & Undead", "toSub": "—", "why": "A snow-ghost lady, like the yuki-onna ghost legend."}, {"id": "H.Zorua->Spectral", "names": ["Hisuian Zorua", "Hisuian Zoroark"], "fromCat": "Mammals - Land", "fromSub": "Foxes", "toGroup": "Mythical, Spectral & Humanoid Beings", "toCat": "Spectral & Undead", "toSub": "—", "why": "Hisuian Zorua and Zoroark are ghost foxes, like vengeful kitsune spirits."}, {"id": "Solosis->Aliens", "names": ["Solosis", "Duosion", "Reuniclus"], "fromCat": "Humanoid & Folk Beings", "fromSub": "Psychic Humanoids", "toGroup": "Mythical, Spectral & Humanoid Beings", "toCat": "Aliens & Cosmic Beings", "toSub": "Aliens", "why": "Cell-like, alien-looking microscopic life."}, {"id": "Minior->Rocks", "names": ["Minior (Red Core)", "Minior (Colorless)"], "fromCat": "Aliens & Cosmic Beings", "fromSub": "Cosmic Bodies & Beings", "toGroup": "Elemental & Geological", "toCat": "Elemental & Geological", "toSub": "Rocks, Crystals & Minerals", "why": "Minior is a meteorite with a core."}, {"id": "Toedscool->Jellyfish", "names": ["Toedscool", "Toedscruel"], "fromCat": "Plants & Fungi", "fromSub": "Fungi & Other Non-Flowering Plants", "toGroup": "Animals & Real-World Creatures", "toCat": "Fish & Aquatic Animals", "toSub": "Jellyfish & Cnidarians", "why": "Mushrooms that look like jellyfish, with trailing tentacles."}, {"id": "Eels->Fish", "names": ["Tynamo", "Eelektrik", "Eelektross", "Mega Eelektross"], "fromCat": "Fish & Aquatic Animals", "fromSub": "Sharks, Rays & Other Scary Sea Animals", "toGroup": "Animals & Real-World Creatures", "toCat": "Fish & Aquatic Animals", "toSub": "Fish & Fish-like Creatures", "why": "Electric eels and lamprey-like fish."}, {"id": "Salandit->Crocs", "names": ["Salandit", "Salazzle"], "fromCat": "Amphibians", "fromSub": "Salamanders, Newts & Axolotls", "toGroup": "Animals & Real-World Creatures", "toCat": "Reptiles", "toSub": "Crocodiles & Alligators", "why": "Reptile lizards with long snouts. (Lizards, Geckos & Chameleons also works.)"}, {"id": "Mudkip->Fish", "names": ["Mudkip", "Marshtomp", "Swampert", "Mega Swampert"], "fromCat": "Amphibians", "fromSub": "Salamanders, Newts & Axolotls", "toGroup": "Animals & Real-World Creatures", "toCat": "Fish & Aquatic Animals", "toSub": "Fish & Fish-like Creatures", "why": "A mudskipper: a fish that walks on land."}, {"id": "Illumise->Bees", "names": ["Illumise"], "fromCat": "Insects & Arthropods", "fromSub": "Other Insects & Arthropods", "toGroup": "Animals & Real-World Creatures", "toCat": "Insects & Arthropods", "toSub": "Bees, Wasps & Hornets", "why": "A firefly, the partner of Volbeat who is already in Bees, Wasps & Hornets."}, {"id": "Nihilego->Aliens", "names": ["Nihilego"], "fromCat": "Fish & Aquatic Animals", "fromSub": "Jellyfish & Cnidarians", "toGroup": "Mythical, Spectral & Humanoid Beings", "toCat": "Aliens & Cosmic Beings", "toSub": "Aliens", "why": "An Ultra Beast that looks like an alien jellyfish."}, {"id": "Meltan->Machines", "names": ["Meltan", "Melmetal", "Gigantamax Melmetal"], "fromCat": "Human Impact", "fromSub": "Infrastructure", "toGroup": "Objects, Food & Technology", "toCat": "Machines & Technology", "toSub": "Machines & Robots", "why": "A nut-and-bolt metal creature."}, {"id": "Anorith->Coral", "names": ["Anorith", "Armaldo"], "fromCat": "Amphibians", "fromSub": "Salamanders, Newts & Axolotls", "toGroup": "Animals & Real-World Creatures", "toCat": "Fish & Aquatic Animals", "toSub": "Coral & Reef Animals", "why": "Ancient sea arthropods, in the same fossil-sea family as Lileep and Cradily."}, {"id": "Swirlix->Fairies", "names": ["Swirlix", "Slurpuff"], "fromCat": "Food & Culinary", "fromSub": "Sweets", "toGroup": "Mythical, Spectral & Humanoid Beings", "toCat": "Humanoid & Folk Beings", "toSub": "Fairies, Nymphs & Goblins", "why": "Cotton-candy fairy-types. This is the weakest fit; Sweets would also work if you find another fix."}];
+function shortPagesList(rows){
+  rows = rows || BINDER;
+  const pages = new Map();
+  rows.forEach(r => { if(!pages.has(r.page)) pages.set(r.page, []); pages.get(r.page).push(r); });
+  const out = [];
+  pages.forEach((rs, pg) => {
+    const pk = rs.filter(r => r.type === 'POKÉMON');
+    if(rs.length < 5 || pk.length <= 1){
+      const first = pk[0] || rs[0];
+      out.push({ page:pg, pockets:rs.length, pokemon:pk.length, names:pk.map(r => r.display), category:first.category, subcategory:first.subcategory });
+    }
+  });
+  return out.sort((a,b) => a.page - b.page);
+}
+function balanceMoveState(mv){
+  const sps = mv.names.map(n => speciesByName.get(n));
+  if(sps.some(x => !x)) return 'gone';
+  if(sps.every(x => x.category === mv.toCat && x.subcategory === mv.toSub)) return 'done';
+  if(sps.every(x => x.category === mv.fromCat && x.subcategory === mv.fromSub)) return 'pending';
+  return 'changed';
+}
+function moveSpeciesTo(names, g, c, sub){
+  names.forEach(nm => {
+    const sp = speciesByName.get(nm); if(!sp) return;
+    Object.assign(sp, { group:g, category:c, subcategory:sub });
+    const base = ORIGINAL_PLACEMENT.get(sp.id);
+    if(base && placementKey(base) === placementKey(sp)) delete STATE.categoryOverrides[nm];
+    else STATE.categoryOverrides[nm] = { group:g, category:c, subcategory:sub };
+  });
+  persist('categoryOverrides'); rebuildBinder();
+}
+function balancePreview(){
+  const pending = BALANCE_MOVES.filter(m => balanceMoveState(m) === 'pending');
+  const copy = SPECIES.map(x => Object.assign({}, x));
+  const by = new Map(copy.map(x => [x.name, x]));
+  pending.forEach(m => m.names.forEach(n => { const x = by.get(n); if(x){ x.group = m.toGroup; x.category = m.toCat; x.subcategory = m.toSub; } }));
+  const rows = computeBinderLayout(copy);
+  return { pending, short: shortPagesList(rows).length, pages: rows.length ? rows[rows.length-1].page : 0 };
+}
+function paradoxStatus(){
+  return Object.keys(PARADOX_TABLE).map(name => {
+    const sp = speciesByName.get(name); const link = PARADOX_TABLE[name];
+    const mate = SPECIES.find(x => x.evoFamily === link.family && !x.variant);
+    const same = !!(sp && mate && sp.category === mate.category && sp.subcategory === mate.subcategory);
+    return { name, link, sp, mate, same };
+  });
+}
+function renderBalance(){
+  const short = shortPagesList();
+  const pv = balancePreview();
+  const total = BINDER.length ? BINDER[BINDER.length-1].page : 0;
+  const px = paradoxStatus();
+  const on = !!(STATE.settings && STATE.settings.paradoxOrder);
+  const moveCard = mv => {
+    const st = balanceMoveState(mv);
+    const stBadge = st === 'done' ? '<span class="badge owned">Done</span>' : st === 'pending' ? '<span class="badge review">Suggested</span>' : st === 'gone' ? '<span class="badge missing">Pokémon removed</span>' : '<span class="badge dup">You moved it already</span>';
+    return `<div class="card" style="padding:12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="min-width:0;flex:1;">
+          <div style="font-weight:600;">${esc(mv.names.join(', '))}</div>
+          <div class="set">${esc(mv.fromSub)} <span aria-hidden="true">→</span><span class="sr-only"> to </span> <strong>${esc(mv.toSub === '—' ? mv.toCat : mv.toSub)}</strong></div>
+          <div class="meta" style="margin-top:4px;">${esc(mv.why)}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">${stBadge}${st === 'pending' ? `<button class="btn sm" data-action="balance-apply" data-id="${esc(mv.id)}">Apply</button>` : ''}</div>
+      </div></div>`;
+  };
+  const pxRows = px.map(r => {
+    const where = r.sp ? (r.sp.subcategory && r.sp.subcategory !== NO_SUB ? r.sp.subcategory : r.sp.category) : 'removed';
+    const kindTxt = r.link.kind === 'ancient' ? 'Ancient' : 'Future';
+    return `<div class="pair-line"><span class="badge ${r.link.kind === 'ancient' ? 'pick' : 'update'}">${kindTxt}</span><span class="set"><strong>${esc(r.name)}</strong> · based on ${esc(r.link.family)} · now in ${esc(where)}</span>${!r.same && r.sp && r.mate ? `<button class="btn sm" data-action="paradox-move" data-name="${esc(r.name)}">Move beside ${esc(r.link.family)}</button>` : ''}</div>`;
+  }).join('');
+  const nPending = pv.pending.length;
+  return `
+    <div class="pagehead"><div><h1>Page balance${short.length ? redDotHTML() : ''}</h1>
+      <div class="sub">${short.length ? `${fmtInt(short.length)} of ${fmtInt(total)} pages are one Pokémon or less than half full.` : 'Every page has at least five pockets used.'}</div></div>
+      <button class="btn" data-nav="tools">← Tools</button></div>
+
+    <div class="card" style="padding:14px;margin-bottom:12px;">
+      <div class="section-title" style="margin-top:0;">Suggested moves</div>
+      <p style="font-size:13.5px;margin:4px 0 10px;">${nPending ? `Applying all ${fmtInt(nPending)} remaining suggestions would give <strong>${fmtInt(pv.pages)} pages and ${fmtInt(pv.short)} short page${pv.short===1?'':'s'}</strong> (now: ${fmtInt(total)} pages, ${fmtInt(short.length)} short). They work as a set: each one shifts a page count that another one repairs, so applying only some can leave new short pages. Each is logged in the Pokémon's Category history, so you can move it back.` : 'No suggestions are waiting.'}</p>
+      ${nPending ? `<button class="btn primary" data-action="balance-apply-all">Apply all ${fmtInt(nPending)}</button>` : ''}
+    </div>
+    ${BALANCE_MOVES.map(moveCard).join('')}
+
+    <div class="section-title">Short pages right now</div>
+    ${short.length ? short.map(x => `<div class="card" style="padding:10px 12px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div><strong>Page ${x.page}</strong> <span class="set">· ${fmtInt(x.pockets)} of 9 pockets · ${fmtInt(x.pokemon)} Pokémon</span><div class="meta">${esc(x.subcategory && x.subcategory !== NO_SUB ? x.subcategory : x.category)}: ${esc(x.names.join(', '))}</div></div><button class="chip sm" data-goto-binder="${x.page}">${ICONS.binder} Open page</button></div></div>`).join('') : '<div class="emptystate card"><h3>None</h3></div>'}
+
+    <div class="section-title">Paradox Pokémon: ancient, modern, future</div>
+    <div class="card" style="padding:14px;margin-bottom:10px;">
+      <p style="font-size:13.5px;margin:0 0 10px;">Switch this on and each Paradox Pokémon is filed right beside the modern Pokémon it is based on: the Ancient one first, then the modern line, then the Future one (for example Great Tusk, Phanpy, Donphan, Iron Treads). This only changes the order inside a section, never the page count. It is off until you turn it on, because it reorders pockets in your physical binder.</p>
+      <button class="btn ${on ? 'primary' : ''}" data-action="paradox-toggle" aria-pressed="${on}">${on ? 'On — tap to turn off' : 'Off — tap to turn on'}</button>
+    </div>
+    <div class="card" style="padding:10px 12px;">${pxRows}</div>
+  `;
+}
+
+/* ============================================================
+   Forms check — Pokémon with no printed card yet, and a short list of forms worth double-checking.
+   ============================================================ */
+const FORMS_REVIEW = [
+  { names:['Arceus (Steel-Type)'], note:'Arceus itself and seven of its type forms were removed, but this form is kept because you own a card for it. Your Arceus V (Brilliant Stars number 122) is the plain Colorless Arceus, so check whether that card belongs under a regular Arceus entry instead.' },
+  { names:['Gigantamax Flapple'], note:'Gigantamax Flapple is here but Gigantamax Appletun is not. The game has both and I believe both have a VMAX card. Use Add Pokémon on the Binder page if you want Appletun.' },
+  { names:['Pikachu (Alola Cap)','Pikachu (Hoenn Cap)','Pikachu (Kalos Cap)','Pikachu (Libre)','Pikachu (Partner Cap)','Pikachu (Sinnoh Cap)','Pikachu (Unova Cap)'], note:'These are costume-style forms, and your original rules left costumes out of the binder. Keep them only if you know a card for each exists.' },
+  { names:['Vivillon (High Plains Pattern)','Vivillon (Modern Pattern)','Vivillon (Ocean Pattern)','Vivillon (Fancy Pattern)','Vivillon (Meadow Pattern)'], note:'Only a card whose art shows that exact pattern counts. Card names do not say the pattern, so this can only be checked by looking at the cards.' },
+  { names:['Furfrou (Heart Trim)','Furfrou (Matron Trim)','Furfrou (Star Trim)'], note:'Same issue: only counts if a card shows that trim.' },
+  { names:['Unown (B)','Unown (C)','Unown (!)','Unown (?)'], note:'Unown letter cards exist from the older sets (all 28 shapes), so these are expected to be fine.' },
+];
+function renderForms(){
+  const none = SPECIES.filter(sp => sp.dex == null || String(sp.id).startsWith('TBD'));
+  const rev = FORMS_REVIEW.map(f => {
+    const have = f.names.map(n => ({ n, there: speciesByName.has(n), owned: speciesByName.has(n) && isOwned(n) })).filter(x => x.there);
+    if(!have.length) return '';
+    return `<div class="card" style="padding:12px;margin-bottom:8px;"><div style="font-weight:600;">${esc(have.map(x => x.n + (x.owned ? ' ✓' : '')).join(', '))}</div><div class="meta" style="margin-top:4px;">${esc(f.note)}</div></div>`;
+  }).join('');
+  return `
+    <div class="pagehead"><div><h1>Forms check</h1><div class="sub">Pokémon and forms that may not have a printed card.</div></div><button class="btn" data-nav="tools">← Tools</button></div>
+    <div class="card" style="padding:12px;margin-bottom:12px;font-size:13.5px;">This list comes from what I know of the card game, not from the live card database, so treat it as a list of things to look at, not a verdict. A tick means you own a card for it, which proves a card exists.</div>
+    <div class="section-title">No Dex number, no card yet</div>
+    ${none.length ? none.map(sp => `<div class="card" style="padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><div><strong>${esc(sp.name)}</strong> <span class="set">· ${esc(displayGeneration(sp.generation))}${isOwned(sp.name) ? ' · you own a card' : ''}</span></div>${isOwned(sp.name) ? '' : `<button class="btn sm ghost" data-action="forms-remove" data-name="${esc(sp.name)}">${ICONS.trash} Remove</button>`}</div>`).join('') : '<div class="emptystate card"><h3>None</h3></div>'}
+    <div class="section-title">Worth double-checking</div>
+    ${rev || '<div class="emptystate card"><h3>Nothing</h3></div>'}
   `;
 }
 
@@ -6907,42 +7191,48 @@ function renderCollectrDiff(){
 }
 
 /* ============================================================
-   Foil + Regular — every card where you own BOTH a foil and a regular of
-   the same card, in one place. Nothing is removed automatically; the
-   Remove button only appears on the regular copies, and asks first.
+   Duplicates & finishes — four checks in one place. Nothing is removed automatically; the
+   Remove button only appears on the lower-finish copies, and asks first.
+     1. a regular AND a foil of the same card
+     2. the holofoil AND the reverse holofoil of the same card
+     3. exact copies (same card, same finish, owned 2+ times) — normal, listed so you can double-check counts
+     4. the same set + number logged for two different Pokémon (a data slip to fix)
    ============================================================ */
+let dupView = 'pairs';
 function renderDuplicates(){
-  let groups = foilRegularGroups();
-  const nRegular = groups.reduce((a,g) => a + g.regulars.length, 0);
-  const nm = g => g.name.toLowerCase();
-  if(dupSort === 'binder'){
-    const slotOf = g => { const sl = g.species ? binderSlotBySpecies.get(g.species) : null; return sl ? sl.slot : 1e9; };
-    groups.sort((a,b) => slotOf(a)-slotOf(b) || nm(a).localeCompare(nm(b)) || String(a.set).localeCompare(String(b.set)));
-  } else {
-    groups.sort((a,b) => nm(a).localeCompare(nm(b)) || String(a.set).localeCompare(String(b.set)) || String(a.cardNumber).localeCompare(String(b.cardNumber), undefined, {numeric:true}));
-  }
+  const fi = finishInfo();
+  const views = [
+    ['pairs',  'Regular + foil',   fi.pairs.length],
+    ['holo',   'Holo + reverse',   fi.holoRev.length],
+    ['exact',  'Exact copies',     fi.exact.length],
+    ['clash',  'Data check',       fi.clashes.length],
+  ];
+  if(!views.some(v => v[0]===dupView)) dupView = 'pairs';
+  const nm = g => String(g.name).toLowerCase();
+  const slotOf = g => { const sl = g.species ? binderSlotBySpecies.get(g.species) : null; return sl ? sl.slot : 1e9; };
+  const sortGroups = arr => {
+    const out = arr.slice();
+    if(dupSort === 'binder') out.sort((a,b) => slotOf(a)-slotOf(b) || nm(a).localeCompare(nm(b)) || String(a.set).localeCompare(String(b.set)));
+    else out.sort((a,b) => nm(a).localeCompare(nm(b)) || String(a.set).localeCompare(String(b.set)) || String(a.cardNumber).localeCompare(String(b.cardNumber), undefined, {numeric:true}));
+    return out;
+  };
   const chip = (val,label) => `<button class="chip ${dupSort===val?'active':''}" data-action="dup-sort" data-value="${val}">${label}</button>`;
-  const line = (c, kind) => {
+  const tabs = views.map(v => `<button class="chip ${dupView===v[0]?'active':''}" data-action="dup-view" data-value="${v[0]}">${v[1]} (${fmtInt(v[2])})</button>`).join('');
+  const line = (c, removable) => {
     const isPick = c.species && STATE.picks[c.species] === c.id;
+    const t = finishTier(c.variance);
     return `
-      <div class="pair-line ${kind}">
-        <span class="badge ${kind==='regular'?'review':'owned'}">${kind==='regular'?'Regular':'Foil'}</span>
+      <div class="pair-line ${removable?'regular':'foil'}">
+        <span class="badge ${t===0?'review':'owned'}">${FINISH_TIER_NAME[t]}</span>
         <span class="set">${esc(c.variance||'Regular')} · ${esc(c.condition)} · Qty ${c.quantity}${c.marketPrice?' · $'+Number(c.marketPrice).toFixed(2):''}</span>
         ${isPick ? '<span class="badge pick">★ Binder pick</span>' : ''}
-        ${kind==='regular' ? `<button class="btn sm ghost" data-action="dup-remove" data-card="${esc(c.id)}" title="Remove this regular copy from the app">${ICONS.trash} Remove</button>` : ''}
+        ${removable ? `<button class="btn sm ghost" data-action="dup-remove" data-card="${esc(c.id)}" title="Remove this lower-finish copy from the app">${ICONS.trash} Remove</button>` : ''}
       </div>`;
   };
-  return `
-    <div class="pagehead"><div><h1>Foil + Regular${groups.length ? redDotHTML() : ''}</h1>
-      <div class="sub">${groups.length ? `${fmtInt(groups.length)} card${groups.length===1?'':'s'} where you own both a foil and a regular · ${fmtInt(nRegular)} regular cop${nRegular===1?'y':'ies'} to review` : 'Nothing to review'}</div></div><button class="btn" data-nav="tools">← Tools</button></div>
-    ${groups.length===0 ? `<div class="emptystate card">${ICONS.empty}<h3>No foil + regular pairs</h3><p>You don't own a foil and a regular of the same card anywhere in your collection.</p></div>` : `
-    <div class="import-controls"><div class="import-controls-row"><span class="import-controls-label">Sort</span>${chip('alpha','A–Z')}${chip('binder','Binder order')}</div></div>
-    <div class="card" style="padding:12px;margin-bottom:12px;">Nothing here is removed automatically. The regular copies are marked in red so you can find and delete them (in Collectr, or with the Remove button here). The foil copies are never touched.</div>
-    ${groups.map(g => {
-      const sp = g.species ? speciesByName.get(g.species) : null;
-      const slot = g.species ? binderSlotBySpecies.get(g.species) : null;
-      return `
-      <div class="card pair-card">
+  const head = g => {
+    const sp = g.species ? speciesByName.get(g.species) : null;
+    const slot = g.species ? binderSlotBySpecies.get(g.species) : null;
+    return `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
           ${sp ? speciesImgTag(sp,'cardrow-img') : ''}
           <div>
@@ -6950,11 +7240,46 @@ function renderDuplicates(){
             <div class="set">${esc(g.set)} · #${esc(g.cardNumber)}</div>
           </div>
           ${slot ? `<span class="chip sm" data-goto-binder="${slot.page}">${ICONS.binder} Pg ${slot.page}, pocket ${slot.pocket} · slot ${fmtInt(slot.slot)}</span>` : ''}
-        </div>
-        ${g.foils.map(c => line(c,'foil')).join('')}
-        ${g.regulars.map(c => line(c,'regular')).join('')}
-      </div>`;
-    }).join('')}`}
+        </div>`;
+  };
+  let intro = '', body = '';
+  if(dupView === 'pairs'){
+    const groups = sortGroups(fi.pairs);
+    const nLow = groups.reduce((a,g) => a + g.regulars.length, 0);
+    intro = `You own a regular copy and a foil copy of the same card. The regular copies are marked in red so you can find and delete them (in Collectr, or with Remove here). Foil copies are never touched.`;
+    body = groups.length ? groups.map(g => `<div class="card pair-card">${head(g)}${g.holos.concat(g.reverses).map(c => line(c,false)).join('')}${g.regulars.map(c => line(c,true)).join('')}</div>`).join('')
+      : `<div class="emptystate card">${ICONS.empty}<h3>No regular + foil pairs</h3><p>You don't own a foil and a regular of the same card anywhere in your collection.</p></div>`;
+    intro += groups.length ? ` (${fmtInt(nLow)} regular cop${nLow===1?'y':'ies'} to review.)` : '';
+  } else if(dupView === 'holo'){
+    const groups = sortGroups(fi.holoRev);
+    intro = `You own both the holofoil and the reverse holofoil of the same card. They are different physical cards, but if you only want one per card, the reverse holofoil is the one marked in red. Nothing is removed unless you tap Remove.`;
+    body = groups.length ? groups.map(g => `<div class="card pair-card">${head(g)}${g.holos.map(c => line(c,false)).join('')}${g.reverses.map(c => line(c,true)).join('')}${g.regulars.map(c => line(c,true)).join('')}</div>`).join('')
+      : `<div class="emptystate card">${ICONS.empty}<h3>No holofoil + reverse pairs</h3><p>No card has both a holofoil and a reverse holofoil copy.</p></div>`;
+  } else if(dupView === 'exact'){
+    const groups = sortGroups(fi.exact.map(e => Object.assign({}, e, { all:e.records })));
+    const total = fi.exact.reduce((a,e) => a + e.qty, 0);
+    intro = `Same card, same finish, owned more than once. These are real extra copies, not mistakes: one goes in the binder (if it is the pick) and the rest go to the extras binder. This list is here so you can double-check the counts. ${fmtInt(total)} cards across ${fmtInt(fi.exact.length)} entries.`;
+    body = groups.length ? groups.map(g => `<div class="card pair-card">${head(g)}
+        <div class="pair-line foil"><span class="badge owned">${esc(g.variance)}</span><span class="set">You own ${g.qty}${g.records.length>1 ? ` (logged on ${g.records.length} separate lines)` : ''}</span></div></div>`).join('')
+      : `<div class="emptystate card">${ICONS.empty}<h3>No exact copies</h3></div>`;
+  } else {
+    intro = `Two different Pokémon are logged with the same set and card number, which can't be right: one of them has the wrong number or the wrong Pokémon. Use Edit on the card that is wrong.`;
+    body = fi.clashes.length ? fi.clashes.map(cl => `<div class="card pair-card">
+        <div class="set" style="margin-bottom:8px;"><strong>${esc(cl.set)} · #${esc(cl.cardNumber)}</strong></div>
+        ${cl.cards.map(c => `<div class="pair-line foil"><span class="badge review">${esc(c.species)}</span><span class="set">${esc(c.productName||'')} · ${esc(c.variance||'Regular')} · added ${esc(c.dateAdded||'')}</span><button class="btn sm ghost" data-action="edit-card" data-card="${esc(c.id)}">${ICONS.edit} Edit</button></div>`).join('')}
+      </div>`).join('')
+      : `<div class="emptystate card">${ICONS.empty}<h3>Nothing to fix</h3><p>Every set + card number belongs to one Pokémon.</p></div>`;
+  }
+  const open = fi.pairs.length + fi.holoRev.length + fi.clashes.length;
+  return `
+    <div class="pagehead"><div><h1>Duplicates &amp; finishes${open ? redDotHTML() : ''}</h1>
+      <div class="sub">${open ? `${fmtInt(fi.pairs.length)} regular + foil · ${fmtInt(fi.holoRev.length)} holo + reverse${fi.clashes.length ? ` · ${fmtInt(fi.clashes.length)} data slip${fi.clashes.length===1?'':'s'}` : ''}` : 'Nothing to review'}</div></div><button class="btn" data-nav="tools">← Tools</button></div>
+    <div class="import-controls">
+      <div class="import-controls-row"><span class="import-controls-label">Check</span><div class="import-chip-scroll" style="flex-wrap:wrap;">${tabs}</div></div>
+      ${dupView==='clash' ? '' : `<div class="import-controls-row"><span class="import-controls-label">Sort</span>${chip('alpha','A–Z')}${chip('binder','Binder order')}</div>`}
+    </div>
+    <div class="card" style="padding:12px;margin-bottom:12px;font-size:13.5px;">${intro}</div>
+    ${body}
   `;
 }
 
