@@ -717,6 +717,43 @@ a.btn, a.btn:hover{text-decoration:none;}
 /* 6. Calm focus ring for keyboard and switch users. */
 :focus-visible{outline:2px solid var(--brass);outline-offset:2px;}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+/* ---------- arrange mode, layout options, row groups, shiny, evolution lines ---------- */
+.pocket.arr{cursor:pointer;touch-action:manipulation;}
+.pocket.arr .pocket-overlay{pointer-events:none;}
+.pocket.arr-sel{outline:3px solid var(--brass);outline-offset:-3px;box-shadow:0 0 0 3px var(--brass-soft);}
+.pocket.arr-fresh{outline:2px dashed var(--brass-soft);outline-offset:-3px;}
+.pocket.empty.arr-empty{border:2px dashed var(--line-strong);background:transparent;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);}
+.pocket.empty.arr-empty .arr-plus{font-size:26px;opacity:.55;}
+.pocket.arr-auto{opacity:.6;}
+.arrbar{margin-bottom:8px;}
+.arr-sec,.arr-selbar{padding:10px 12px;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;font-size:13px;}
+.arr-selbar{border-color:var(--brass);}
+.arr-sec .btns,.arr-selbar .btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.arr-fam{font-size:12px;display:flex;gap:6px;align-items:center;}
+.arr-btn{display:block;width:100%;text-align:left;margin-bottom:8px;white-space:normal;height:auto;padding:12px 14px;}
+.lay-opt{display:block;width:100%;text-align:left;background:var(--paper-raised);border:2px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;cursor:pointer;color:inherit;font:inherit;}
+.lay-opt.on{border-color:var(--brass);box-shadow:0 0 0 2px var(--brass-soft);}
+.lay-opt .lay-t{display:block;font-weight:600;}
+.lay-opt .lay-d{display:block;font-size:12.5px;color:var(--ink-soft);margin:2px 0 4px;}
+.lay-opt .lay-n{display:block;font-size:12.5px;font-weight:600;color:var(--brass);}
+.rg-card{padding:12px;margin-bottom:8px;}
+.rg-card.rg-dim{opacity:.6;}
+.rg-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:2px;}
+.rg-why{font-size:13px;margin:6px 0;}
+.rg-list{font-size:12.5px;display:grid;gap:3px;}
+.rg-pick{display:flex;gap:8px;align-items:center;}
+.evo-line{font-size:10.5px;color:var(--brass);font-weight:600;margin-top:2px;}
+.evo-how{font-size:13px;margin-top:3px;}
+.evo-into{margin-top:6px;}
+.evofam-how{font-size:10px;color:var(--brass);font-weight:600;line-height:1.2;}
+.evofam-node.evo-hit{outline:2px solid var(--brass);outline-offset:1px;}
+.shiny-pocket .shiny-star{color:var(--brass);font-size:16px;}
+.shiny-pocket .foot{gap:6px;align-items:center;}
+.pocket .evomini .evo-m{color:var(--brass);font-weight:600;}
+@media (max-width:600px){.arr-btn{padding:14px;}}
+.shiny-pocket .foot{flex-wrap:nowrap;justify-content:center;padding:0 6px 8px;}
+.shiny-pocket .foot .btn{padding:4px 10px;font-size:11.5px;min-height:0;height:auto;}
+.shiny-pocket .taxmini{font-size:9px;color:var(--ink-soft);text-align:center;}
 </style>
 </head>
 <body>
@@ -842,6 +879,15 @@ function sortByFamilyThenEvo(list){
 }
 
 var ROW_CLUSTERS = {};   // Pokémon name -> {l: label, o: order}; set from Settings (row groups inside a section)
+/* Layout options, all saved in Settings and read here:
+   familyRows       'off' | 'lines' | 'all'   start each evolution line on a new row of three pockets
+   sectionFamilyRows { 'Category||Subcategory': 'off'|'lines'|'all' }   per-section override of the above
+   pinFirst         names / evolution families that always sit first in their section (Arceus)
+   sectionOrder     { 'Category||Subcategory': [ {k:'p',n:name} | {k:'blank'} | {k:'label',t:text,id} ] }   a section you arranged by hand */
+var LAYOUT_OPTS = { familyRows:'off', sectionFamilyRows:{}, pinFirst:[], sectionOrder:{} };
+function layoutSecKey(category, subcategory){ return category + '||' + subcategory; }
+function layoutPinned(s){ const P = LAYOUT_OPTS.pinFirst || []; return P.length > 0 && P.some(x => x === s.name || x === s.evoFamily || x === s.baseSpecies); }
+function layoutFamKey(s){ const PX = window.__PARADOX_LINKS || null, l = PX && PX[s.name]; return l ? l.family : (s.evoFamily || s.name); }
 function computeBinderLayout(species){
   const byPath = new Map();
   for(const s of species){
@@ -866,8 +912,10 @@ function computeBinderLayout(species){
   function forceNewPage(){
     if(pocket!==0){ pocket=0; page++; }
   }
-  // Leave pockets empty until the next row of three starts (used before a row-group label).
+  // Leave pockets empty until the next row of three starts (used before a row-group label or a new evolution line).
   function skipToRow(){ while(pocket%3!==0){ slot++; pocket++; } }
+  // One deliberately empty pocket (a space you left on purpose, or one a row break left behind).
+  function skipOne(){ slot++; pocket++; if(pocket>9){ pocket=1; page++; } }
   for(const group of GROUP_ORDER){
     const cats = CATEGORY_ORDER[group]||[];
     for(const category of cats){
@@ -887,20 +935,55 @@ function computeBinderLayout(species){
           place({type:'CATEGORY LABEL',labelLevel:'CATEGORY',display:category,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CATEGORY::'+category,taxBreak: group!==lastGroup ? null : 'NEW CATEGORY'});
         }
         if(subcategory!==NO_SUB) place({type:'SUBCATEGORY LABEL',labelLevel:'SUBCATEGORY',display:subcategory,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'SUBCATEGORY::'+subcategory,taxBreak:null});
-        const putPk = s => place({type:'POKÉMON',labelLevel:null,display:s.name,dex:s.dex,group,category,subcategory,evoFamily:s.evoFamily,evoOrder:s.evoOrder});
-        if(list.some(s => ROW_CLUSTERS[s.name])){
-          // Row groups: each group starts on a new row of three pockets with its own label pocket.
-          // The first group follows the section label directly; Pokémon with no group come last, in their normal order.
-          const gm = new Map(), rest = [];
-          list.forEach(s => { const c = ROW_CLUSTERS[s.name]; if(!c){ rest.push(s); return; } if(!gm.has(c.l)) gm.set(c.l, {o:c.o, l:c.l, m:[]}); gm.get(c.l).m.push(s); });
-          [...gm.values()].sort((a,b) => a.o - b.o).forEach((g, i) => {
-            if(i > 0) skipToRow();
-            place({type:'ROW LABEL',labelLevel:'THE GROUP',display:g.l,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'ROWGROUP::'+g.l,taxBreak:null});
-            g.m.forEach(putPk);
+        const putPk = (s, extra) => place(Object.assign({type:'POKÉMON',labelLevel:null,display:s.name,dex:s.dex,group,category,subcategory,evoFamily:s.evoFamily,evoOrder:s.evoOrder}, extra || null));
+        const secKey = layoutSecKey(category, subcategory);
+        const manual = (LAYOUT_OPTS.sectionOrder || {})[secKey];
+        if(manual && manual.length){
+          // A section you arranged by hand: your order, your empty pockets, your label cards.
+          // Pokémon that are new to the section since then go at the end; Pokémon that left it drop out.
+          const byName = new Map(list.map(s => [s.name, s])), used = new Set(), seq = [];
+          manual.forEach(it => {
+            if(!it) return;
+            if(it.k === 'p'){ const s = byName.get(it.n); if(s && !used.has(s.name)){ used.add(s.name); seq.push({k:'p', s}); } }
+            else if(it.k === 'label' || it.k === 'blank') seq.push(it);
           });
-          if(rest.length){ skipToRow(); rest.forEach(putPk); }
+          while(seq.length && seq[seq.length-1].k === 'blank') seq.pop();
+          list.filter(s => !used.has(s.name)).forEach(s => seq.push({k:'p', s, fresh:true}));
+          seq.forEach(it => {
+            if(it.k === 'p') putPk(it.s, it.fresh ? {fresh:true} : null);
+            else if(it.k === 'blank') skipOne();
+            else place({type:'CUSTOM LABEL',labelLevel:'NOTE',display:it.t || '',dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CUSTOM::'+it.id,taxBreak:null,custom:true});
+          });
         } else {
-          for(const s of list) putPk(s);
+          const mode = ((LAYOUT_OPTS.sectionFamilyRows || {})[secKey]) || LAYOUT_OPTS.familyRows || 'off';
+          const famSize = new Map(); list.forEach(s => { const k = layoutFamKey(s); famSize.set(k, (famSize.get(k) || 0) + 1); });
+          let prevFam = null;
+          // each new evolution line starts at the left of a row ('all' = every family, 'lines' = only lines of two or more)
+          const putFam = s => {
+            const k = layoutFamKey(s);
+            if(mode !== 'off' && prevFam !== null && k !== prevFam && (mode === 'all' || famSize.get(k) > 1 || famSize.get(prevFam) > 1)) skipToRow();
+            prevFam = k; putPk(s);
+          };
+          const pins = list.filter(layoutPinned);
+          const body = pins.length ? list.filter(s => !layoutPinned(s)) : list;
+          const hasGroups = body.some(s => ROW_CLUSTERS[s.name]);
+          pins.forEach(putFam);   // pinned Pokémon (Arceus) come first, before every group
+          if(pins.length && body.length && (hasGroups || mode !== 'off')) skipToRow();
+          prevFam = null;
+          if(hasGroups){
+            // Row groups: each group starts on a new row of three pockets with its own label pocket.
+            // The first group follows the section label directly; Pokémon with no group come last, in their normal order.
+            const gm = new Map(), rest = [];
+            body.forEach(s => { const c = ROW_CLUSTERS[s.name]; if(!c){ rest.push(s); return; } if(!gm.has(c.l)) gm.set(c.l, {o:c.o, l:c.l, m:[]}); gm.get(c.l).m.push(s); });
+            [...gm.values()].sort((a,b) => a.o - b.o).forEach((g, i) => {
+              if(i > 0 || pins.length) skipToRow();
+              place({type:'ROW LABEL',labelLevel:'THE GROUP',display:g.l,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'ROWGROUP::'+g.l,taxBreak:null});
+              prevFam = null; g.m.forEach(putFam);
+            });
+            if(rest.length){ skipToRow(); prevFam = null; rest.forEach(putFam); }
+          } else {
+            body.forEach(putFam);
+          }
         }
         lastGroup=group; lastCat=category; lastSub=subcategory;
       }
@@ -1042,6 +1125,7 @@ function dedupeTaxonomy(){
 function rebuildBinder(){
   try{ dedupeTaxonomy(); }catch(e){}
   try{ ROW_CLUSTERS = (STATE.settings && STATE.settings.rowClusters) || {}; }catch(e){}
+  try{ syncLayoutOpts(); arrSecCache = null; _evoNextMap = null; }catch(e){}
   BINDER = computeBinderLayout(SPECIES);
   rebuildBinderIndexes();
   try{ trackPlacementChanges(); }catch(e){}
@@ -2467,6 +2551,7 @@ const ROUTES = [
   { id:'pokedex', label:'Pokédex', icon:'pokedex', group:'Collect' },
   { id:'binder', label:'Binder', icon:'binder', group:'Binders' },
   { id:'extras', label:'Extras Binder', icon:'extras', group:'Binders' },
+  { id:'shiny', label:'Shiny Binder', icon:'star', group:'Binders' },
   { id:'binders', label:'All Binders', icon:'binders', group:'Binders' },
   { id:'sections', label:'Organize', icon:'organize', group:'Binders' },
   { id:'taxonomy', label:'Taxonomy', icon:'taxonomy', group:'Browse' },
@@ -2477,7 +2562,7 @@ const ROUTES = [
   { id:'settings', label:'Settings', icon:'settings', group:'Manage' },
 ];
 // Tools is a hub: these pages all live under it in the menu.
-const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist','balance','forms','reorg'];
+const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist','balance','forms','reorg','rowgroups'];
 // The bottom tabbar only has room for a handful of tabs before they either
 // get crammed or require horizontal scrolling to discover. These four cover
 // the screens used day-to-day; everything else lives behind "More".
@@ -2575,6 +2660,8 @@ function render(){
     duplicates: renderDuplicates,
     balance: renderBalance,
     reorg: renderReorg,
+    rowgroups: renderRowGroups,
+    shiny: renderShiny,
     forms: renderForms,
     tools: renderTools,
     picks: renderPicksTool,
@@ -2955,9 +3042,13 @@ function wireScreenEvents(routeId){
     $('#pdxType')?.addEventListener('change', e => { pokedexFilter.type = e.target.value; render(); });
     $('#pdxStatus')?.addEventListener('change', e => { pokedexFilter.status = e.target.value; render(); });
     $('#pdxSort')?.addEventListener('change', e => { pokedexFilter.sort = e.target.value; render(); });
+    $('#pdxEvo')?.addEventListener('change', e => { pokedexFilter.evo = e.target.value; if(e.target.value !== 'stone') pokedexFilter.stone = ''; render(); });
+    $('#pdxStone')?.addEventListener('change', e => { pokedexFilter.stone = e.target.value; render(); });
   }
   else if(routeId === 'evolutions'){
     $('#evoSearch')?.addEventListener('input', debounce(e => { evolutionsFilter.q = e.target.value; render(); }, 220));
+    $('#evoHow')?.addEventListener('change', e => { evolutionsFilter.evo = e.target.value; if(e.target.value !== 'stone') evolutionsFilter.stone = ''; render(); });
+    $('#evoStone')?.addEventListener('change', e => { evolutionsFilter.stone = e.target.value; render(); });
   }
   else if(routeId === 'binder'){
     $$('.js-bd-prev').forEach(b => b.addEventListener('click', () => { flagBinderScroll(b); location.hash = '#/binder/' + (binderPage-1); }));
@@ -3137,7 +3228,7 @@ function renderDashboard(){
    Collection
    ============================================================ */
 let collectionFilter = { q:'', group:'', pickOnly:false, sort:'name' };
-let evolutionsFilter = { q:'' };
+let evolutionsFilter = { q:'', evo:'', stone:'' };
 
 function renderCollection(){
   const groups = Array.from(new Set(SPECIES.map(s=>s.group))).sort();
@@ -3368,7 +3459,7 @@ function deleteCard(cardId){
 /* ============================================================
    Pokédex
    ============================================================ */
-let pokedexFilter = { q:'', group:'', status:'', sort:'dex', type:'' };
+let pokedexFilter = { q:'', group:'', status:'', sort:'dex', type:'', evo:'', stone:'' };
 let pokedexSelectMode = false;
 let pokedexSelection = [];
 
@@ -3606,6 +3697,7 @@ function renderPokedex(){
   }
   if(pokedexFilter.group) list = list.filter(s => s.group === pokedexFilter.group);
   if(pokedexFilter.type) list = list.filter(s => (s.types||[]).includes(pokedexFilter.type));
+  if(pokedexFilter.evo) list = list.filter(s => evoMatches(s, pokedexFilter.evo, pokedexFilter.stone));
   if(pokedexFilter.status === 'owned') list = list.filter(s => isOwned(s.name));
   if(pokedexFilter.status === 'missing') list = list.filter(s => !isOwned(s.name));
   if(pokedexFilter.status === 'pick') list = list.filter(s => !!STATE.picks[s.name]);
@@ -3614,7 +3706,7 @@ function renderPokedex(){
   if(pokedexFilter.sort === 'dex') list.sort((a,b)=> (a.dex??99999) - (b.dex??99999));
   else if(pokedexFilter.sort === 'name') list.sort((a,b)=>a.name.localeCompare(b.name));
 
-  const pdxSig = [pokedexFilter.q, pokedexFilter.group, pokedexFilter.type, pokedexFilter.status, pokedexFilter.sort].join('|');
+  const pdxSig = [pokedexFilter.q, pokedexFilter.group, pokedexFilter.type, pokedexFilter.status, pokedexFilter.sort, pokedexFilter.evo, pokedexFilter.stone].join('|');
   if(pdxSig !== pdxLastSig){ pdxLastSig = pdxSig; pdxLimit = 120; }
   const shownList = list.slice(0, pdxLimit);
   return `
@@ -3644,6 +3736,7 @@ function renderPokedex(){
         <option value="pick" ${pokedexFilter.status==='pick'?'selected':''}>Has binder pick</option>
         <option value="needpick" ${pokedexFilter.status==='needpick'?'selected':''}>Owned, needs pick</option>
       </select>
+      ${evoFilterSelectsHTML('pdxEvo','pdxStone',pokedexFilter.evo,pokedexFilter.stone)}
       <select id="pdxSort">
         <option value="dex" ${pokedexFilter.sort==='dex'?'selected':''}>Sort: Dex #</option>
         <option value="name" ${pokedexFilter.sort==='name'?'selected':''}>Sort: Name</option>
@@ -3669,6 +3762,7 @@ function renderSpeciesCard(s, selectMode, selected){
       <div class="nm">${esc(s.name)}</div>
       ${s.variant ? `<div class="badge pick" style="font-size:9px;align-self:flex-start;">${esc(s.variant)}</div>` : ''}
       <div class="type-row">${typeBadges(s.types)}</div>
+      ${evoLineHTML(s)}
       <div class="tax">${esc(taxBreadcrumb(s))}</div>
       <div class="badges">
         ${owned ? `<span class="badge owned">Owned ×${qty}</span>` : `<span class="badge missing">Missing</span>`}
@@ -3981,6 +4075,8 @@ function renderSpeciesDetail(args){
       <div style="display:flex;gap:8px;flex-wrap:wrap;">${typeBadges(s.types)}</div>
     </div>
 
+    ${evoPanelHTML(s)}
+
     <div class="panel" style="margin-bottom:18px;">
       <div class="section-title" style="margin-top:0;display:flex;align-items:center;justify-content:space-between;">
         <span>Taxonomy</span>
@@ -4250,6 +4346,7 @@ function doRenameCategory(group, oldName, newName){
     }
   });
   if(touched) persist('categoryOverrides');
+  try{ layoutRenameSection(oldName, null, newName, null); }catch(e){}
   const oldKey = 'CATEGORY::'+oldName, newKey = 'CATEGORY::'+newName;
   if(STATE.labelOverrides[oldKey] !== undefined){ STATE.labelOverrides[newKey] = STATE.labelOverrides[oldKey]; delete STATE.labelOverrides[oldKey]; persist('labelOverrides'); }
   saveTaxonomy();
@@ -4274,6 +4371,7 @@ function doRenameSubcategory(category, oldName, newName){
     }
   });
   if(touched) persist('categoryOverrides');
+  try{ layoutRenameSection(category, oldName, category, newName); }catch(e){}
   const oldKey = 'SUBCATEGORY::'+oldName, newKey = 'SUBCATEGORY::'+newName;
   if(STATE.labelOverrides[oldKey] !== undefined){ STATE.labelOverrides[newKey] = STATE.labelOverrides[oldKey]; delete STATE.labelOverrides[oldKey]; persist('labelOverrides'); }
   saveTaxonomy();
@@ -5188,9 +5286,11 @@ function openRecategorizeModal(names){
 function evoNodeHTML(m){
   const qty = speciesOwnedQty(m.name);
   const owned = isOwned(m.name);
-  return `<button class="evofam-node ${owned?'owned':'missing'}" data-nav-species="${esc(m.name)}">
+  const hit = evolutionsFilter.evo && evoMatches(m, evolutionsFilter.evo, evolutionsFilter.stone);
+  return `<button class="evofam-node ${owned?'owned':'missing'} ${hit?'evo-hit':''}" data-nav-species="${esc(m.name)}">
     <div class="evofam-thumb">${speciesImgTag(m,'evofam-img')}</div>
     <div class="evofam-nm">${esc(m.name)}${qty>0?` <span class="evofam-qty">×${qty}</span>`:''}</div>
+    ${(() => { const i = evoInfo(m); return i && !i.tags.includes('cosmetic') ? `<div class="evofam-how">${esc(evoShort(i))}</div>` : ''; })()}
   </button>`;
 }
 /* ---------------- Edit evolution family membership ----------------
@@ -5285,9 +5385,10 @@ function renderEvolutions(){
   families.sort((a,b) => (a.members[0].dex??99999) - (b.members[0].dex??99999));
 
   const q = evolutionsFilter.q ? norm(evolutionsFilter.q) : '';
-  const filtered = q ? families.filter(f => f.members.some(m=>norm(m.name).includes(q))) : families;
+  const eF = evolutionsFilter.evo, eS = evolutionsFilter.stone;
+  const filtered = families.filter(f => (!q || f.members.some(m=>norm(m.name).includes(q))) && (!eF || f.members.some(m => evoMatches(m, eF, eS))));
 
-  const evoSig = q; if(evoSig !== evoLastSig){ evoLastSig = evoSig; evoLimit = 40; }
+  const evoSig = q + '|' + eF + '|' + eS; if(evoSig !== evoLastSig){ evoLastSig = evoSig; evoLimit = 40; }
   const shownFam = filtered.slice(0, evoLimit);
   const cards = shownFam.map(f => {
     const orders = [...new Set(f.members.map(m=>m.evoOrder||1))].sort((a,b)=>a-b);
@@ -5318,6 +5419,7 @@ function renderEvolutions(){
     </div>
     <div class="toolbar">
       <div class="searchbar">${ICONS.search}<input type="search" id="evoSearch" placeholder="Filter by name…" value="${esc(evolutionsFilter.q)}" autocomplete="off"></div>
+      ${evoFilterSelectsHTML('evoHow','evoStone',evolutionsFilter.evo,evolutionsFilter.stone)}
     </div>
     <div class="evofam-list">${cards || `<div class="emptystate card">${ICONS.empty}<h3>No matches</h3></div>`}</div>
     ${filtered.length > shownFam.length ? `<div style="text-align:center;margin:16px 0;"><button class="btn" id="evoMore" data-action="evo-more">Show ${Math.min(40, filtered.length - shownFam.length)} more (${fmtInt(filtered.length - shownFam.length)} left)</button></div>` : ''}
@@ -5631,7 +5733,7 @@ function renderBinder(args){
   const cells = [];
   for(let p=1;p<=9;p++){
     const slot = byPocket[p];
-    cells.push(renderPocket(slot, binderEditMode, mergeSelection, hl));
+    cells.push(binderArrange ? arrPocketHTML(binderPage, p) : renderPocket(slot, binderEditMode, mergeSelection, hl));
   }
 
   return `
@@ -5640,6 +5742,8 @@ function renderBinder(args){
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" data-nav="sections">${ICONS.taxonomy} Organize sections</button>
         <button class="btn" data-action="open-add-species">${ICONS.plus} Add Pokémon</button>
+        <button class="btn ${binderArrange?'accent':''}" data-k2="arr-toggle">${ICONS.move||''} ${binderArrange?'Done arranging':'Arrange'}</button>
+        <button class="btn" data-k2="lay-open">Layout</button>
         <button class="btn ${binderEditMode?'accent':''}" data-action="toggle-binder-edit">${ICONS.edit} ${binderEditMode?'Done editing labels':'Edit labels'}</button>
       </div>
     </div>
@@ -5658,6 +5762,7 @@ function renderBinder(args){
         <button class="btn ghost" data-action="redo-labels" ${labelRedoStack.length?'':'disabled'}>Redo ${ICONS.right||''}</button>
       </div>
     </div>` : ''}
+    ${binderArrange ? arrToolbarHTML() : ''}
     ${faLegendHTML()}
     ${binderHighlightPanelHTML(hl)}
     ${binderNavHTML('bd', binderPage, BINDER_MAX_PAGE)}
@@ -5677,7 +5782,7 @@ function renderPocket(slot, editMode, selection, hl){
         <div class="nm merged-note">↳ combined above</div>
       </div>`;
     }
-    const displayText = STATE.labelOverrides[slot.key] || slot.display;
+    const displayText = slot.custom ? slot.display : (STATE.labelOverrides[slot.key] || slot.display);
     const selected = editMode && selection && selection.includes(slot.key);
     const cls = ['pocket','label', editMode?'editable':'', selected?'selected-merge':''].join(' ').trim();
     const bodyAttr = editMode ? `data-action="edit-label-tap" data-slot="${esc(slot.key)}"` : '';
@@ -5718,7 +5823,7 @@ function renderPocket(slot, editMode, selection, hl){
         <div class="body">
           <div class="nm">${esc(slot.display)}</div>
           ${owned && taxLabel ? `<div class="taxmini">${esc(taxLabel)}</div>` : ''}
-          ${owned && fromName ? `<div class="evomini">Evolves from ${esc(fromName)}</div>` : ''}
+          ${owned && fromName ? `<div class="evomini">Evolves from ${esc(fromName)}${(() => { const ei = evoInfo(sp); return ei && !ei.tags.includes('battle') && !ei.tags.includes('cosmetic') ? ' · <span class="evo-m">' + esc(evoShort(ei)) + '</span>' : ''; })()}</div>` : ''}
           ${setLabel ? `<div class="setmini">${esc(setLabel)}</div>` : ''}
         </div>
         <div class="foot">
@@ -6547,6 +6652,7 @@ function renderTools(){
     ${tool('picks','star','Binder picks','Pokémon with more than one card that still need you to choose which goes in the binder.',st.picks, st.picks ? `${fmtInt(st.picks)} Pokémon need a pick` : 'All set')}
     ${tool('checklist','check','Checklists','Pokémon you don’t have yet in A–Z order, plus every variation you have or are missing (Floette colours, regional forms and so on). Copy or download them.',0,ckStatusText())}
     ${tool('fullart','photo','Not full art','Which Pokémon have no full-art card printed anywhere, which you can still look for, and which of your cards aren’t full art. Also turns on the full-art symbols in the binder.',0,fullArtStatusText())}
+    ${tool('rowgroups','binder','Row groups & layout','Sub-sub categories inside a section (Foxes inside Dogs, Mushrooms inside Fungi), plus the option to start each evolution line on a new row. Suggestions show the page cost before you apply them.',0, Object.keys(STATE.settings.rowClusters||{}).length ? `${fmtInt(rgMine().length)} row group${rgMine().length===1?'':'s'} in use · ${fmtInt(BINDER_MAX_PAGE)} pages` : `${fmtInt(BINDER_MAX_PAGE)} pages · ${LAYOUT_OPTS.familyRows==='off'?'lines packed together':'new row per line'}`)}
     ${tool('reorg','binder','Reorganize plan','A reviewed plan to file Pokémon by their final evolution, keep Ultra Beasts and fossils together, and merge thin sections so fewer pockets are wasted. Apply it, dismiss it, or undo it.',reorgOpen()?1:0, reorgOpen() ? `${fmtInt(reorgPending().length)} Pokémon to move` : (STATE.settings.reorgApplied ? 'Applied' : (STATE.settings.reorgDismissed===REORG_PLAN.id ? 'Dismissed' : 'Nothing to apply')))}
     ${tool('balance','binder','Page balance','Binder pages that are one Pokémon or less than half full, with a reviewed set of moves to fix them, and the ancient / modern / future ordering for Paradox Pokémon.',shortPagesList().length, shortPagesList().length ? `${fmtInt(shortPagesList().length)} short page${shortPagesList().length===1?'':'s'}` : 'No short pages')}
     ${tool('forms','check','Forms check','Pokémon with no printed card yet, and forms worth double-checking against the real cards.',0,'Open')}
@@ -7782,7 +7888,7 @@ function exportCollectionCSV(){
   downloadFile(`kyles-deck-collection-${todayISO()}.csv`, lines.join('\n'), 'text/csv');
 }
 function exportCategorizationCSV(){
-  const headers = ['Species','Dex #','Group','Category','Subcategory','Evolution Family','Evolution Stage','Owned','Binder Page'];
+  const headers = ['Species','Dex #','Group','Category','Subcategory','Evolution Family','Evolution Stage','Owned','Binder Page','Evolves By','Shiny Available'];
   const lines = [headers.join(',')];
   SPECIES.slice()
     .sort((a,b)=> (a.dex??99999)-(b.dex??99999) || a.name.localeCompare(b.name))
@@ -7798,6 +7904,8 @@ function exportCategorizationCSV(){
         s.evoOrder!=null ? s.evoOrder : '',
         isOwned(s.name) ? 'Yes' : 'No',
         slot ? slot.page : '',
+        (() => { const i = evoInfo(s); return i ? i.text : ''; })(),
+        shinyAvailable(s.name) ? 'Yes' : 'No',
       ].map(v => `"${String(v==null?'':v).replace(/"/g,'""')}"`);
       lines.push(row.join(','));
     });
@@ -7851,6 +7959,1300 @@ function restoreBackup(file){
     }catch(err){ toast('That file could not be read as a backup.'); }
   };
   reader.readAsText(file);
+}
+
+/* ============================================================
+   NEW — how each Pokémon evolves (and what it needs), layout options, arranging the binder by hand,
+   row groups (sub-sub categories), and the shiny binder.
+   ============================================================ */
+
+/* ---------------- How each Pokémon evolves ----------------
+   Written from the main-series games. Each line: name | tag letters | what it needs | item (if any).
+   Tag letters: L level · S stone · T trade · I trade holding an item · F friendship · D day / night
+   M knowing a move · H special item · P place or weather · G gender · X other · B battle form · C cosmetic */
+const EVO_RAW = `Ivysaur|L|Level 16
+Venusaur|L|Level 32
+Charmeleon|L|Level 16
+Charizard|L|Level 36
+Wartortle|L|Level 16
+Blastoise|L|Level 36
+Metapod|L|Level 7
+Butterfree|L|Level 10
+Kakuna|L|Level 7
+Beedrill|L|Level 10
+Pidgeotto|L|Level 18
+Pidgeot|L|Level 36
+Raticate|L|Level 20
+Fearow|L|Level 20
+Arbok|L|Level 22
+Pikachu|F|High friendship (from Pichu)
+Raichu|S|Thunder Stone|Thunder Stone
+Sandslash|L|Level 22
+Nidorina|L|Level 16
+Nidoqueen|S|Moon Stone|Moon Stone
+Nidorino|L|Level 16
+Nidoking|S|Moon Stone|Moon Stone
+Clefairy|F|High friendship (from Cleffa)
+Clefable|S|Moon Stone|Moon Stone
+Ninetales|S|Fire Stone|Fire Stone
+Jigglypuff|F|High friendship (from Igglybuff)
+Wigglytuff|S|Moon Stone|Moon Stone
+Golbat|L|Level 22
+Gloom|L|Level 21
+Vileplume|S|Leaf Stone|Leaf Stone
+Parasect|L|Level 24
+Venomoth|L|Level 31
+Dugtrio|L|Level 26
+Persian|L|Level 28
+Golduck|L|Level 33
+Primeape|L|Level 28
+Arcanine|S|Fire Stone|Fire Stone
+Poliwhirl|L|Level 25
+Poliwrath|S|Water Stone|Water Stone
+Kadabra|L|Level 16
+Alakazam|T|Trade
+Machoke|L|Level 28
+Machamp|T|Trade
+Weepinbell|L|Level 21
+Victreebel|S|Leaf Stone|Leaf Stone
+Tentacruel|L|Level 30
+Graveler|L|Level 25
+Golem|T|Trade
+Rapidash|L|Level 40
+Slowbro|L|Level 37
+Magneton|L|Level 30
+Dodrio|L|Level 31
+Dewgong|L|Level 34
+Muk|L|Level 38
+Cloyster|S|Water Stone|Water Stone
+Haunter|L|Level 25
+Gengar|T|Trade
+Hypno|L|Level 26
+Kingler|L|Level 28
+Electrode|L|Level 30
+Exeggutor|S|Leaf Stone|Leaf Stone
+Marowak|L|Level 28
+Hitmonlee|L|Level 20 (from Tyrogue) when its Attack is higher than its Defense
+Hitmonchan|L|Level 20 (from Tyrogue) when its Defense is higher than its Attack
+Hitmontop|L|Level 20 (from Tyrogue) when its Attack and Defense are equal
+Weezing|L|Level 35
+Rhydon|L|Level 42
+Chansey|DH|Level up in daytime holding an Oval Stone (from Happiny)|Oval Stone
+Seadra|L|Level 32
+Seaking|L|Level 33
+Starmie|S|Water Stone|Water Stone
+Mr. Mime|M|Level up knowing Mimic (from Mime Jr.)
+Jynx|L|Level 30 (from Smoochum)
+Electabuzz|L|Level 30 (from Elekid)
+Magmar|L|Level 30 (from Magby)
+Gyarados|L|Level 20
+Vaporeon|S|Water Stone|Water Stone
+Jolteon|S|Thunder Stone|Thunder Stone
+Flareon|S|Fire Stone|Fire Stone
+Omastar|L|Level 40
+Kabutops|L|Level 40
+Snorlax|F|High friendship (from Munchlax)
+Dragonair|L|Level 30
+Dragonite|L|Level 55
+Bayleef|L|Level 16
+Meganium|L|Level 32
+Quilava|L|Level 14
+Typhlosion|L|Level 36
+Croconaw|L|Level 18
+Feraligatr|L|Level 30
+Furret|L|Level 15
+Noctowl|L|Level 20
+Ledian|L|Level 18
+Ariados|L|Level 22
+Crobat|F|High friendship (from Golbat)
+Lanturn|L|Level 27
+Togetic|F|High friendship (from Togepi)
+Xatu|L|Level 25
+Flaaffy|L|Level 15
+Ampharos|L|Level 30
+Bellossom|S|Sun Stone|Sun Stone
+Marill|F|High friendship (from Azurill)
+Azumarill|L|Level 18
+Sudowoodo|M|Level up knowing Mimic (from Bonsly)
+Politoed|IT|Trade while holding a King's Rock|King's Rock
+Skiploom|L|Level 18
+Jumpluff|L|Level 27
+Sunflora|S|Sun Stone|Sun Stone
+Quagsire|L|Level 20
+Espeon|FD|High friendship, leveled up in daytime
+Umbreon|FD|High friendship, leveled up at night
+Slowking|IT|Trade while holding a King's Rock|King's Rock
+Forretress|L|Level 31
+Steelix|IT|Trade while holding a Metal Coat|Metal Coat
+Granbull|L|Level 23
+Scizor|IT|Trade while holding a Metal Coat|Metal Coat
+Ursaring|L|Level 30
+Magcargo|L|Level 38
+Piloswine|L|Level 33
+Octillery|L|Level 25
+Mantine|X|Level up with a Remoraid in the party (from Mantyke)
+Houndoom|L|Level 24
+Kingdra|IT|Trade while holding a Dragon Scale|Dragon Scale
+Donphan|L|Level 25
+Porygon2|IT|Trade while holding an Up-Grade|Up-Grade
+Blissey|F|High friendship (from Chansey)
+Pupitar|L|Level 30
+Tyranitar|L|Level 55
+Grovyle|L|Level 16
+Sceptile|L|Level 36
+Combusken|L|Level 16
+Blaziken|L|Level 36
+Marshtomp|L|Level 16
+Swampert|L|Level 36
+Mightyena|L|Level 18
+Linoone|L|Level 20
+Silcoon|L|Level 7 (Wurmple: random, set by personality)
+Beautifly|L|Level 10
+Cascoon|L|Level 7 (Wurmple: random, set by personality)
+Dustox|L|Level 10
+Lombre|L|Level 14
+Ludicolo|S|Water Stone|Water Stone
+Nuzleaf|L|Level 14
+Shiftry|S|Leaf Stone|Leaf Stone
+Swellow|L|Level 22
+Pelipper|L|Level 25
+Kirlia|L|Level 20
+Gardevoir|L|Level 30
+Masquerain|L|Level 22
+Breloom|L|Level 23
+Vigoroth|L|Level 18
+Slaking|L|Level 36
+Ninjask|L|Level 20
+Shedinja|X|Level 20 with an empty party slot and a spare Poké Ball (from Nincada)
+Loudred|L|Level 20
+Exploud|L|Level 40
+Hariyama|L|Level 24
+Delcatty|S|Moon Stone|Moon Stone
+Lairon|L|Level 32
+Aggron|L|Level 42
+Medicham|L|Level 37
+Manectric|L|Level 26
+Roselia|FD|High friendship in daytime (from Budew)
+Swalot|L|Level 26
+Sharpedo|L|Level 30
+Wailord|L|Level 40
+Camerupt|L|Level 33
+Grumpig|L|Level 32
+Vibrava|L|Level 35
+Flygon|L|Level 45
+Cacturne|L|Level 32
+Altaria|L|Level 35
+Whiscash|L|Level 30
+Crawdaunt|L|Level 30
+Claydol|L|Level 36
+Cradily|L|Level 40
+Armaldo|L|Level 40
+Milotic|IT|Trade holding a Prism Scale (older games: level up with high Beauty)|Prism Scale
+Banette|L|Level 37
+Dusclops|L|Level 37
+Chimecho|FD|High friendship at night (from Chingling)
+Glalie|L|Level 42
+Sealeo|L|Level 32
+Walrein|L|Level 44
+Huntail|IT|Trade while holding a Deep Sea Tooth|Deep Sea Tooth
+Gorebyss|IT|Trade while holding a Deep Sea Scale|Deep Sea Scale
+Shelgon|L|Level 30
+Salamence|L|Level 50
+Metang|L|Level 20
+Metagross|L|Level 45
+Grotle|L|Level 18
+Torterra|L|Level 32
+Monferno|L|Level 14
+Infernape|L|Level 36
+Prinplup|L|Level 16
+Empoleon|L|Level 36
+Staravia|L|Level 14
+Staraptor|L|Level 34
+Bibarel|L|Level 15
+Kricketune|L|Level 10
+Luxio|L|Level 15
+Luxray|L|Level 30
+Roserade|S|Shiny Stone|Shiny Stone
+Rampardos|L|Level 30
+Bastiodon|L|Level 30
+Wormadam|G|Level 20, female Burmy (cloak depends on where it last battled)
+Mothim|G|Level 20, male Burmy
+Vespiquen|G|Level 21, female Combee
+Floatzel|L|Level 26
+Cherrim|L|Level 25
+Gastrodon|L|Level 30
+Ambipom|M|Level up knowing Double Hit (from Aipom)
+Drifblim|L|Level 28
+Lopunny|F|High friendship (from Buneary)
+Mismagius|S|Dusk Stone|Dusk Stone
+Honchkrow|S|Dusk Stone|Dusk Stone
+Purugly|L|Level 38
+Skuntank|L|Level 34
+Bronzong|L|Level 33
+Gabite|L|Level 24
+Garchomp|L|Level 48
+Lucario|FD|High friendship in daytime (from Riolu)
+Hippowdon|L|Level 34
+Drapion|L|Level 40
+Toxicroak|L|Level 37
+Lumineon|L|Level 31
+Abomasnow|L|Level 40
+Weavile|DH|Level up at night holding a Razor Claw (from Sneasel)|Razor Claw
+Magnezone|PS|Level up in a magnetic area (older games), or Thunder Stone in newer ones|Thunder Stone
+Lickilicky|M|Level up knowing Rollout (from Lickitung)
+Rhyperior|IT|Trade while holding a Protector|Protector
+Tangrowth|M|Level up knowing Ancient Power (from Tangela)
+Electivire|IT|Trade while holding an Electirizer|Electirizer
+Magmortar|IT|Trade while holding a Magmarizer|Magmarizer
+Togekiss|S|Shiny Stone|Shiny Stone
+Yanmega|M|Level up knowing Ancient Power (from Yanma)
+Leafeon|S|Leaf Stone (older games: level up near a Moss Rock)|Leaf Stone
+Glaceon|S|Ice Stone (older games: level up near an Ice Rock)|Ice Stone
+Gliscor|DH|Level up at night holding a Razor Fang (from Gligar)|Razor Fang
+Mamoswine|M|Level up knowing Ancient Power (from Piloswine)
+Porygon-Z|IT|Trade while holding a Dubious Disc|Dubious Disc
+Gallade|S|Dawn Stone (male Kirlia)|Dawn Stone
+Probopass|PS|Level up in a magnetic area (older games), or Thunder Stone in newer ones|Thunder Stone
+Dusknoir|IT|Trade while holding a Reaper Cloth|Reaper Cloth
+Froslass|S|Dawn Stone (female Snorunt)|Dawn Stone
+Servine|L|Level 17
+Serperior|L|Level 36
+Pignite|L|Level 17
+Emboar|L|Level 36
+Dewott|L|Level 17
+Samurott|L|Level 36
+Watchog|L|Level 20
+Herdier|L|Level 16
+Stoutland|L|Level 32
+Liepard|L|Level 20
+Simisage|S|Leaf Stone|Leaf Stone
+Simisear|S|Fire Stone|Fire Stone
+Simipour|S|Water Stone|Water Stone
+Musharna|S|Moon Stone|Moon Stone
+Tranquill|L|Level 21
+Unfezant|L|Level 32
+Zebstrika|L|Level 27
+Boldore|L|Level 25
+Gigalith|T|Trade
+Swoobat|F|High friendship (from Woobat)
+Excadrill|L|Level 31
+Gurdurr|L|Level 25
+Conkeldurr|T|Trade
+Palpitoad|L|Level 25
+Seismitoad|L|Level 36
+Swadloon|L|Level 20
+Leavanny|F|High friendship (from Swadloon)
+Whirlipede|L|Level 22
+Scolipede|L|Level 30
+Whimsicott|S|Sun Stone|Sun Stone
+Lilligant|S|Sun Stone|Sun Stone
+Krokorok|L|Level 29
+Krookodile|L|Level 40
+Darmanitan|L|Level 35
+Crustle|L|Level 34
+Scrafty|L|Level 39
+Cofagrigus|L|Level 34
+Carracosta|L|Level 37
+Archeops|L|Level 37
+Garbodor|L|Level 36
+Zoroark|L|Level 30
+Cinccino|S|Shiny Stone|Shiny Stone
+Gothorita|L|Level 32
+Gothitelle|L|Level 41
+Duosion|L|Level 32
+Reuniclus|L|Level 41
+Swanna|L|Level 35
+Vanillish|L|Level 35
+Vanilluxe|L|Level 47
+Sawsbuck|L|Level 34
+Escavalier|T|Trade for a Shelmet (Karrablast is traded with Shelmet)
+Accelgor|T|Trade for a Karrablast (Shelmet is traded with Karrablast)
+Amoonguss|L|Level 39
+Jellicent|L|Level 40
+Galvantula|L|Level 36
+Ferrothorn|L|Level 40
+Klang|L|Level 38
+Klinklang|L|Level 49
+Eelektrik|L|Level 39
+Eelektross|S|Thunder Stone|Thunder Stone
+Beheeyem|L|Level 42
+Lampent|L|Level 41
+Chandelure|S|Dusk Stone|Dusk Stone
+Fraxure|L|Level 38
+Haxorus|L|Level 48
+Beartic|L|Level 37
+Mienshao|L|Level 50
+Golurk|L|Level 43
+Bisharp|L|Level 52
+Braviary|L|Level 54
+Mandibuzz|L|Level 54
+Zweilous|L|Level 50
+Hydreigon|L|Level 64
+Volcarona|L|Level 59
+Quilladin|L|Level 16
+Chesnaught|L|Level 36
+Braixen|L|Level 16
+Delphox|L|Level 36
+Frogadier|L|Level 16
+Greninja|L|Level 36
+Diggersby|L|Level 20
+Fletchinder|L|Level 17
+Talonflame|L|Level 35
+Spewpa|L|Level 9
+Vivillon|L|Level 12
+Pyroar|L|Level 35
+Floette|L|Level 19
+Florges|S|Shiny Stone|Shiny Stone
+Gogoat|L|Level 32
+Pangoro|X|Level 32 with a Dark-type Pokémon in the party
+Meowstic|G|Level 25 (form depends on gender)
+Doublade|L|Level 35
+Aegislash|S|Dusk Stone|Dusk Stone
+Aromatisse|IT|Trade while holding a Sachet|Sachet
+Slurpuff|IT|Trade while holding a Whipped Dream|Whipped Dream
+Malamar|X|Level 30 while the game console is held upside down (from Inkay)
+Barbaracle|L|Level 39
+Dragalge|L|Level 48
+Clawitzer|L|Level 37
+Heliolisk|S|Sun Stone|Sun Stone
+Tyrantrum|DL|Level 39 in daytime
+Aurorus|DL|Level 39 at night
+Sylveon|FM|High friendship while knowing a Fairy-type move (from Eevee)
+Sliggoo|L|Level 40
+Goodra|P|Level 50 while it is raining
+Trevenant|T|Trade
+Gourgeist|T|Trade
+Avalugg|L|Level 37
+Noivern|L|Level 48
+Dartrix|L|Level 17
+Decidueye|L|Level 34
+Torracat|L|Level 17
+Incineroar|L|Level 34
+Brionne|L|Level 17
+Primarina|L|Level 34
+Trumbeak|L|Level 14
+Toucannon|L|Level 28
+Gumshoos|L|Level 20
+Charjabug|L|Level 20
+Vikavolt|PS|Level up at Mount Lanakila (Alola), or a Thunder Stone in newer games|Thunder Stone
+Crabominable|PS|Level up at Mount Lanakila (Alola), or an Ice Stone in newer games|Ice Stone
+Ribombee|L|Level 25
+Lycanroc|DL|Level 25 (Midday form by day, Midnight form by night, Dusk form with Own Tempo)
+Toxapex|L|Level 38
+Mudsdale|L|Level 30
+Araquanid|L|Level 22
+Lurantis|DL|Level 34 in daytime
+Shiinotic|L|Level 24
+Salazzle|G|Level 33, female Salandit only
+Bewear|L|Level 27
+Steenee|L|Level 18
+Tsareena|M|Level up knowing Stomp (from Steenee)
+Golisopod|L|Level 30
+Palossand|L|Level 42
+Silvally|F|High friendship (from Type: Null)
+Hakamo-o|L|Level 35
+Kommo-o|L|Level 45
+Cosmoem|L|Level 43
+Solgaleo|L|Level 53 (Sun, Ultra Sun, Shield)
+Lunala|L|Level 53 (Moon, Ultra Moon, Sword)
+Naganadel|M|Level up knowing Dragon Pulse (from Poipole)
+Melmetal|X|Pokémon GO: 400 Meltan Candy (also Mystery Box in Let's Go)
+Thwackey|L|Level 8
+Rillaboom|L|Level 35
+Raboot|L|Level 8
+Cinderace|L|Level 35
+Drizzile|L|Level 8
+Inteleon|L|Level 35
+Greedent|L|Level 24
+Corvisquire|L|Level 18
+Corviknight|L|Level 38
+Dottler|L|Level 10
+Orbeetle|L|Level 30
+Thievul|L|Level 18
+Eldegoss|L|Level 20
+Dubwool|L|Level 24
+Drednaw|L|Level 22
+Boltund|L|Level 25
+Carkol|L|Level 18
+Coalossal|L|Level 34
+Flapple|HX|Use a Tart Apple (from Applin)|Tart Apple
+Appletun|HX|Use a Sweet Apple (from Applin)|Sweet Apple
+Sandaconda|L|Level 36
+Barraskewda|L|Level 26
+Toxtricity|L|Level 30 (form depends on nature)
+Centiskorch|L|Level 28
+Grapploct|L|Level 35
+Polteageist|HX|Use a Cracked Pot (Phony form) or Chipped Pot (Antique form) (from Sinistea)|Cracked Pot / Chipped Pot
+Hattrem|L|Level 32
+Hatterene|L|Level 42
+Morgrem|L|Level 32
+Grimmsnarl|L|Level 42
+Obstagoon|DL|Level 35 at night (from Galarian Linoone)
+Perrserker|L|Level 28 (from Galarian Meowth)
+Cursola|L|Level 38 (from Galarian Corsola)
+Sirfetch'd|X|Land 3 critical hits in one battle (from Galarian Farfetch'd)
+Mr. Rime|L|Level 42 (from Galarian Mr. Mime)
+Runerigus|X|Take 49+ damage, then walk under the stone arch in Dusty Bowl (from Galarian Yamask)
+Alcremie|X|Spin around holding a Sweet (from Milcery); the Sweet and the spin decide its flavor
+Frosmoth|FD|High friendship at night (from Snom)
+Copperajah|L|Level 34
+Drakloak|L|Level 50
+Dragapult|L|Level 60
+Urshifu|HX|Scroll of Darkness (Single Strike) or Scroll of Waters (Rapid Strike) (from Kubfu)|Scroll of Darkness / Scroll of Waters
+Wyrdeer|X|Use Psyshield Bash 20 times in Agile Style (Legends: Arceus)
+Kleavor|HX|Use a Black Augurite (from Scyther)|Black Augurite
+Ursaluna|HX|Use a Peat Block on a night of a full moon (Legends: Arceus) (from Ursaring)|Peat Block
+Basculegion|X|Take 294 recoil damage (Legends: Arceus) (from White-Striped Basculin)
+Sneasler|DH|Level up in daytime holding a Razor Claw (from Hisuian Sneasel)|Razor Claw
+Overqwil|X|Use Barb Barrage 20 times in Strong Style (Legends: Arceus)
+Floragato|L|Level 16
+Meowscarada|L|Level 36
+Crocalor|L|Level 16
+Skeledirge|L|Level 36
+Quaxwell|L|Level 16
+Quaquaval|L|Level 36
+Oinkologne|L|Level 18
+Spidops|L|Level 15
+Lokix|L|Level 24
+Pawmo|L|Level 18
+Pawmot|X|Level 32 after walking 1,000 steps in Let's Go mode
+Maushold|L|Level 25 (family of three or four at random)
+Dachsbun|L|Level 26
+Dolliv|L|Level 25
+Arboliva|L|Level 35
+Naclstack|L|Level 24
+Garganacl|L|Level 38
+Armarouge|HX|Use an Auspicious Armor (from Charcadet)|Auspicious Armor
+Ceruledge|HX|Use a Malicious Armor (from Charcadet)|Malicious Armor
+Bellibolt|S|Thunder Stone (from Tadbulb)|Thunder Stone
+Kilowattrel|L|Level 25
+Mabosstiff|S|Dusk Stone (from Maschiff)|Dusk Stone
+Grafaiai|L|Level 28
+Brambleghast|L|Level 30
+Toedscruel|L|Level 30
+Scovillain|S|Fire Stone (from Capsakid)|Fire Stone
+Rabsca|L|Level 29
+Espathra|L|Level 35
+Tinkatuff|L|Level 24
+Tinkaton|L|Level 38
+Wugtrio|L|Level 26
+Palafin|L|Level 38 (while connected online)
+Revavroom|L|Level 40
+Glimmora|L|Level 35
+Houndstone|DL|Level 30 at night
+Cetitan|S|Ice Stone (from Cetoddle)|Ice Stone
+Annihilape|X|Use Rage Fist 20 times, then level up (from Primeape)
+Clodsire|L|Level 20 (from Paldean Wooper)
+Farigiraf|M|Level up knowing Twin Beam (from Girafarig)
+Dudunsparce|M|Level up knowing Hyper Drill (from Dunsparce)
+Kingambit|HX|Defeat 3 Bisharp that hold Leader's Crests, then level up holding a Leader's Crest|Leader's Crest
+Arctibax|L|Level 35
+Baxcalibur|L|Level 54
+Gholdengo|X|Level up with 999 Gimmighoul Coins (from Gimmighoul)|Gimmighoul Coins
+Dipplin|HX|Use a Syrupy Apple (from Applin)|Syrupy Apple
+Sinistcha|HX|Use an Unremarkable Teacup or Masterpiece Teacup (from Poltchageist)|Unremarkable Teacup / Masterpiece Teacup
+Archaludon|HX|Use a Metal Alloy (from Duraludon)|Metal Alloy
+Hydrapple|M|Level up knowing Dragon Cheer (from Dipplin)
+Alolan Raticate|DL|Level 20 at night
+Alolan Raichu|S|Thunder Stone (Alolan Raichu appears when evolved in Alola)|Thunder Stone
+Alolan Sandslash|S|Ice Stone|Ice Stone
+Alolan Ninetales|S|Ice Stone|Ice Stone
+Alolan Dugtrio|L|Level 26
+Alolan Persian|L|Level 28
+Alolan Graveler|L|Level 25
+Alolan Golem|T|Trade
+Alolan Muk|L|Level 38
+Alolan Exeggutor|S|Leaf Stone (Alolan form appears when evolved in Alola)|Leaf Stone
+Alolan Marowak|DL|Level 28 at night
+Galarian Rapidash|L|Level 40
+Galarian Slowbro|HX|Use a Galarica Cuff (from Galarian Slowpoke)|Galarica Cuff
+Galarian Slowking|HX|Use a Galarica Wreath (from Galarian Slowpoke)|Galarica Wreath
+Galarian Weezing|L|Level 35 (from Galarian Koffing; in Galar from Koffing)
+Galarian Mr. Mime|M|Level up knowing Mimic (from Mime Jr.)
+Galarian Linoone|L|Level 20
+Galarian Darmanitan|S|Ice Stone (from Galarian Darumaka)|Ice Stone
+Hisuian Arcanine|S|Fire Stone|Fire Stone
+Hisuian Electrode|S|Leaf Stone|Leaf Stone
+Hisuian Typhlosion|L|Level 36
+Hisuian Samurott|L|Level 36
+Hisuian Lilligant|S|Sun Stone|Sun Stone
+Hisuian Zoroark|L|Level 30
+Hisuian Braviary|L|Level 54
+Hisuian Sliggoo|L|Level 40
+Hisuian Goodra|P|Level 50 while it is raining
+Hisuian Avalugg|L|Level 37
+Hisuian Decidueye|L|Level 34
+Wormadam (Sandy Cloak)|G|Level 20, female Burmy in the Sandy Cloak
+Wormadam (Trash Cloak)|G|Level 20, female Burmy in the Trash Cloak
+Meowstic (Female)|G|Level 25, female Espurr
+Meowstic (Male)|G|Level 25, male Espurr
+Oinkologne (Female)|G|Level 18, female Lechonk
+Pyroar (Female)|G|Level 35, female Litleo
+Unfezant (Female)|G|Level 32, female Tranquill
+Jellicent (Female)|L|Level 40, female Frillish
+Lycanroc (Midnight Form)|DL|Level 25 at night
+Lycanroc (Dusk Form)|DL|Level 25 in the evening, Own Tempo Rockruff only
+Maushold (Family of Four)|L|Level 25 (one in four chance)
+Maushold (Family of Three)|L|Level 25 (three in four chance)
+Dudunsparce (Three-Segment Form)|M|Level up knowing Hyper Drill (one in a hundred chance)
+Greninja (Ash-Greninja)|X|Special form of Greninja (Ash's Greninja, from the anime promos)
+Palafin (Hero Form)|X|Evolves at level 38 online, then changes to Hero Form when it switches out in battle
+Ursaluna (Bloodmoon)|X|Special form found in Scarlet and Violet's Kitakami (The Teal Mask) story
+Darmanitan (Zen Mode)|B|Battle form of Darmanitan (Zen Mode, below half HP)
+Galarian Darmanitan (Zen Mode)|B|Battle form of Galarian Darmanitan (Zen Mode, below half HP)
+Aegislash (Blade Forme)|B|Battle form: changes when it attacks
+Toxtricity (Low Key Form)|L|Level 30 with a Lonely, Bold, Relaxed, Timid, Serious, Modest, Mild, Quiet, Bashful or Calm nature
+Urshifu (Rapid Strike Style)|HX|Scroll of Waters (from Kubfu)|Scroll of Waters
+Urshifu (Single Strike Style)|HX|Scroll of Darkness (from Kubfu)|Scroll of Darkness
+Cherrim (Sunshine Form)|B|Changes to Sunshine Form in harsh sunlight
+Sinistcha (Masterpiece Form)|HX|Use a Masterpiece Teacup (from Poltchageist)|Masterpiece Teacup
+Sinistcha (Unremarkable Form)|HX|Use an Unremarkable Teacup (from Poltchageist)|Unremarkable Teacup
+Silvally (Type: Electric)|X|Hold the Electric Memory (Silvally changes type)|Electric Memory
+Silvally (Type: Fighting)|X|Hold the Fighting Memory (Silvally changes type)|Fighting Memory
+Silvally (Type: Fire)|X|Hold the Fire Memory (Silvally changes type)|Fire Memory
+Silvally (Type: Grass)|X|Hold the Grass Memory (Silvally changes type)|Grass Memory
+Silvally (Type: Psychic)|X|Hold the Psychic Memory (Silvally changes type)|Psychic Memory
+Silvally (Type: Water)|X|Hold the Water Memory (Silvally changes type)|Water Memory`;
+const EVO_FORMS_RAW = `Giratina (Origin Forme)|B|Origin Forme: hold the Griseous Orb (Griseous Core in Legends: Arceus)
+Dialga (Origin Forme)|B|Origin Forme: hold the Adamant Crystal (Legends: Arceus)
+Palkia (Origin Forme)|B|Origin Forme: hold the Lustrous Globe (Legends: Arceus)
+Kyurem (Black Kyurem)|B|Fuse Kyurem with Zekrom using the DNA Splicers
+Kyurem (White Kyurem)|B|Fuse Kyurem with Reshiram using the DNA Splicers
+Dusk Mane Necrozma|B|Fuse Necrozma with Solgaleo using the N-Solarizer
+Dawn Wings Necrozma|B|Fuse Necrozma with Lunala using the N-Lunarizer
+Ultra Necrozma|B|Ultra Burst in battle: Dusk Mane or Dawn Wings Necrozma holding Ultranecrozium Z
+Shaymin (Sky Forme)|B|Use the Gracidea flower in daytime (it reverts at night)
+Tornadus (Therian Forme)|B|Use a Reveal Glass
+Thundurus (Therian Forme)|B|Use a Reveal Glass
+Landorus (Therian Forme)|B|Use a Reveal Glass
+Meloetta (Pirouette Forme)|B|Changes in battle when it uses Relic Song
+Keldeo (Resolute Form)|B|Learn the move Secret Sword
+Hoopa (Unbound)|B|Use the Prison Bottle
+Zygarde (10% Forme)|B|Zygarde's forme changes with Zygarde Cells and Cores (Power Construct, in battle)
+Zygarde (Complete Forme)|B|Zygarde's forme changes with Zygarde Cells and Cores (Power Construct, in battle)
+Deoxys (Attack Forme)|B|Changes by touching a meteorite (older games)
+Deoxys (Defense Forme)|B|Changes by touching a meteorite (older games)
+Deoxys (Speed Forme)|B|Changes by touching a meteorite (older games)
+Rotom (Heat)|B|Change appliance with the Rotom Catalog (older games: visit the appliance)
+Rotom (Wash)|B|Change appliance with the Rotom Catalog (older games: visit the appliance)
+Rotom (Frost)|B|Change appliance with the Rotom Catalog (older games: visit the appliance)
+Rotom (Fan)|B|Change appliance with the Rotom Catalog (older games: visit the appliance)
+Rotom (Mow)|B|Change appliance with the Rotom Catalog (older games: visit the appliance)
+Castform (Sunny Form)|B|Changes in battle with the weather (harsh sunlight)
+Castform (Rainy Form)|B|Changes in battle with the weather (rain)
+Castform (Snowy Form)|B|Changes in battle with the weather (hail or snow)
+Calyrex (Ice Rider)|B|Fuse Calyrex with Glastrier using the Reins of Unity
+Calyrex (Shadow Rider)|B|Fuse Calyrex with Spectrier using the Reins of Unity
+Zacian (Crowned Sword)|B|Hold the Rusted Sword
+Zamazenta (Crowned Shield)|B|Hold the Rusted Shield
+Eternatus (Eternamax)|B|Eternamax in battle (story event only)
+Terapagos (Terastal Form)|B|Changes when it Terastallizes
+Terapagos (Stellar Form)|B|Changes when it uses the Stellar Tera Type
+Ogerpon (Wellspring Mask)|B|Wear the Wellspring Mask
+Ogerpon (Hearthflame Mask)|B|Wear the Hearthflame Mask
+Ogerpon (Cornerstone Mask)|B|Wear the Cornerstone Mask
+Eiscue (Noice Face)|B|Changes in battle after taking a physical hit (Ice Face)
+Cramorant (Gulping Form)|B|Changes in battle when it uses Surf or Dive
+Wishiwashi (School Form)|B|Changes in battle at level 20+ with HP above 25%
+Morpeko (Hangry Mode)|B|Switches back and forth each turn in battle (Aura Wheel)
+Mimikyu (Busted Form)|B|Changes in battle after it takes a hit (Disguise)
+Xerneas (Active Mode)|B|Active Mode while in battle
+Gimmighoul (Roaming Form)|X|The wandering form of Gimmighoul (found roaming, not in a chest)
+Poltchageist (Artisan Form)|X|Artisan Form of Poltchageist
+Mega Rayquaza|B|Mega Evolves by knowing Dragon Ascent (no Mega Stone needed)
+Primal Kyogre|B|Primal Reversion in battle while holding the Blue Orb|Blue Orb
+Primal Groudon|B|Primal Reversion in battle while holding the Red Orb|Red Orb
+Basculin (Blue-Striped)|C|Stripe colour depends on where it is found
+Basculin (White-Striped)|C|Stripe colour depends on where it is found (Hisui)
+Oricorio (Pom-Pom Style)|C|Style changes with nectar: Yellow Nectar
+Oricorio (Pa'u Style)|C|Style changes with nectar: Pink Nectar
+Oricorio (Sensu Style)|C|Style changes with nectar: Purple Nectar
+Deerling (Summer)|C|Season depends on the real-world month
+Deerling (Autumn)|C|Season depends on the real-world month
+Deerling (Winter)|C|Season depends on the real-world month
+Burmy (Sandy Cloak)|C|Cloak depends on where it last battled
+Burmy (Trash Cloak)|C|Cloak depends on where it last battled
+Shellos (East Sea)|C|Sea depends on where it is found
+Shellos (West Sea)|C|Sea depends on where it is found
+Furfrou (Heart Trim)|C|Trim changes with a visit to a Pokémon grooming salon
+Furfrou (Kabuki Trim)|C|Trim changes with a visit to a Pokémon grooming salon
+Furfrou (Matron Trim)|C|Trim changes with a visit to a Pokémon grooming salon
+Furfrou (Pharaoh Trim)|C|Trim changes with a visit to a Pokémon grooming salon
+Furfrou (Star Trim)|C|Trim changes with a visit to a Pokémon grooming salon
+Squawkabilly (Blue Plumage)|C|Plumage depends on where it is found
+Squawkabilly (White Plumage)|C|Plumage depends on where it is found
+Squawkabilly (Yellow Plumage)|C|Plumage depends on where it is found
+Indeedee (Female)|C|Gender difference
+Frillish (Female)|C|Gender difference
+Flabebe (Yellow Flower)|C|Flower colour depends on where it is found
+Flabebe (Orange Flower)|C|Flower colour depends on where it is found
+Flabebe (Blue Flower)|C|Flower colour depends on where it is found
+Flabebe (White Flower)|C|Flower colour depends on where it is found
+Minior (Red Core)|C|Core colour is random when caught
+Minior (Orange Core)|C|Core colour is random when caught
+Minior (Yellow Core)|C|Core colour is random when caught
+Minior (Green Core)|C|Core colour is random when caught
+Minior (Blue Core)|C|Core colour is random when caught
+Minior (Indigo Core)|C|Core colour is random when caught
+Minior (Violet Core)|C|Core colour is random when caught`;
+const EVO_TAG_OF = { L:'level', S:'stone', T:'trade', I:'tradeitem', F:'friend', D:'time', M:'move', H:'item', P:'place', G:'gender', X:'other', B:'battle', C:'cosmetic' };
+const EVO_TABLE = {}, EVO_FORMS = {};
+(function(){
+  const parse = (raw, into) => raw.split('\n').forEach(ln => {
+    if(!ln.trim()) return; const p = ln.split('|');
+    into[p[0]] = { tags: (p[1] || '').split('').map(c => EVO_TAG_OF[c]).filter(Boolean), text: p[2] || '', item: p[3] || '' };
+  });
+  parse(EVO_RAW, EVO_TABLE); parse(EVO_FORMS_RAW, EVO_FORMS);
+})();
+const EVO_FILTERS = [
+  ['', 'How it evolves: any'],
+  ['first', 'Doesn’t evolve from anything'],
+  ['level', 'Level up'],
+  ['stone', 'Evolution stone'],
+  ['trade', 'Trade (with or without an item)'],
+  ['tradeitem', 'Trade while holding an item'],
+  ['friend', 'Friendship'],
+  ['time', 'Day or night matters'],
+  ['move', 'Knowing a certain move'],
+  ['item', 'A special item'],
+  ['place', 'A place or weather'],
+  ['gender', 'Gender matters'],
+  ['other', 'Something special'],
+  ['battle', 'Battle / Mega / form change'],
+  ['cosmetic', 'Cosmetic form (no evolution)'],
+];
+const EVO_STONES = ['Fire Stone','Water Stone','Thunder Stone','Leaf Stone','Moon Stone','Sun Stone','Shiny Stone','Dusk Stone','Dawn Stone','Ice Stone'];
+const EVO_PRIOR_FIX = { 'Perrserker':'Galarian Meowth', 'Ursaluna':'Ursaring', 'Ursaluna (Bloodmoon)':'Ursaring', 'Annihilape':'Primeape', 'Hydrapple':'Dipplin' };
+function evoInfo(sp){
+  if(!sp) return null;
+  const nm = sp.name;
+  let e = EVO_TABLE[nm];
+  if(e) return { tags:e.tags, text:e.text, item:e.item };
+  const m = /^(Mega|Gigantamax|Primal) /.exec(nm);
+  if(m){
+    if(EVO_FORMS[nm]) return { tags:EVO_FORMS[nm].tags, text:EVO_FORMS[nm].text, item:EVO_FORMS[nm].item };
+    if(m[1] === 'Mega') return { tags:['battle'], text:'Mega Evolution: in battle, while holding its Mega Stone', item:'' };
+    if(m[1] === 'Gigantamax') return { tags:['battle'], text:'Gigantamax: a battle form while Dynamaxed (needs the Gigantamax version of the Pokémon)', item:'' };
+    return { tags:['battle'], text:'Primal Reversion: in battle, while holding its Orb', item:'' };
+  }
+  e = EVO_FORMS[nm]; if(e) return { tags:e.tags, text:e.text, item:e.item };
+  const base = nm.replace(/\s*\([^)]*\)\s*$/, '');
+  if(base !== nm && EVO_TABLE[base]){ const b = EVO_TABLE[base]; return { tags:b.tags, text:b.text, item:b.item, inherited:true }; }
+  if(sp.evoOrder > 1) return { tags:['unknown'], text:'Not in the app’s table yet — check its Bulbapedia page (link on the Pokémon page).', item:'', unknown:true };
+  if(sp.variant && /Unown/.test(nm)) return { tags:['cosmetic'], text:'Letter form: which letter an Unown is depends on the individual Pokémon', item:'' };
+  if(sp.variant) return { tags:['cosmetic'], text:'A form of ' + (sp.baseSpecies || nm) + ' — see its Bulbapedia page for how to get it', item:'' };
+  return null;
+}
+function evoShort(info){
+  if(!info) return '';
+  const t = info.tags, txt = info.text || '';
+  if(t.includes('stone') && info.item) return info.item;
+  if(t.includes('tradeitem')) return 'Trade + ' + (info.item || 'item');
+  if(t.includes('trade')) return 'Trade';
+  if(t.includes('friend')) return t.includes('time') ? (/night/i.test(txt) ? 'Friendship (night)' : 'Friendship (day)') : 'Friendship';
+  const lv = /^Level (\d+)/.exec(txt);
+  if(t.includes('level') && lv) return 'Lv ' + lv[1] + (t.includes('time') ? (/night/i.test(txt) ? ' night' : ' day') : '');
+  if(t.includes('level')) return 'Level up';
+  if(t.includes('move')) return 'Learns a move';
+  if(t.includes('item')) return info.item || 'Special item';
+  if(t.includes('place')) return 'Special place';
+  if(t.includes('gender')) return 'Gender';
+  if(t.includes('battle')) return 'Form change';
+  if(t.includes('cosmetic')) return 'Cosmetic form';
+  return 'Special';
+}
+var _evoPriorMap = null, _evoNextMap = null;
+function evoPriorOf(s){
+  const fix = EVO_PRIOR_FIX[s.name]; if(fix && speciesByName.get(fix)) return fix;
+  return evolvesFrom(s);
+}
+function evoMaps(){
+  if(_evoNextMap) return;
+  _evoNextMap = new Map();
+  SPECIES.forEach(s => { if(s.evoOrder > 1 && !/^(Mega|Gigantamax|Primal) /.test(s.name)){ const p = evoPriorOf(s); if(p){ if(!_evoNextMap.has(p)) _evoNextMap.set(p, []); _evoNextMap.get(p).push(s.name); } } });
+}
+function evoMapsReset(){ _evoNextMap = null; }
+function evoMatches(sp, f, stone){
+  if(!f) return true;
+  const info = evoInfo(sp);
+  if(f === 'first') return !info && !(sp.evoOrder > 1);
+  if(!info) return false;
+  if(f === 'stone' && stone) return info.tags.includes('stone') && info.item === stone;
+  if(f === 'trade') return info.tags.includes('trade') || info.tags.includes('tradeitem');
+  return info.tags.includes(f);
+}
+function evoItemBadge(i){ return i && i.item && !String(i.text).includes(i.item) ? ` <span class="badge pick">${esc(i.item)}</span>` : ''; }
+function evoLineHTML(sp){
+  const info = evoInfo(sp); if(!info || info.tags.includes('cosmetic')) return '';
+  return `<div class="evo-line" title="${esc(info.text)}">${esc(evoShort(info))}</div>`;
+}
+function evoPanelHTML(s){
+  evoMaps();
+  const info = evoInfo(s), prior = (s.evoOrder > 1 && !/^(Mega|Gigantamax|Primal) /.test(s.name)) ? evoPriorOf(s) : null;
+  const nexts = (_evoNextMap.get(s.name) || []).map(n => speciesByName.get(n)).filter(Boolean);
+  let first;
+  if(info && !info.unknown){
+    first = prior && !info.tags.includes('battle') && !info.tags.includes('cosmetic')
+      ? `<div><strong>Evolves from <span class="chip" data-nav-species="${esc(prior)}">${esc(prior)}</span></strong><div class="evo-how">${esc(info.text)}${evoItemBadge(info)}</div></div>`
+      : `<div><strong>${info.tags.includes('battle') ? 'Form change' : info.tags.includes('cosmetic') ? 'About this form' : 'How it comes about'}</strong><div class="evo-how">${esc(info.text)}${evoItemBadge(info)}</div></div>`;
+  } else if(info && info.unknown){
+    first = `<div><strong>Evolves from ${prior ? `<span class="chip" data-nav-species="${esc(prior)}">${esc(prior)}</span>` : 'an earlier stage'}</strong><div class="evo-how">${esc(info.text)}</div></div>`;
+  } else first = `<div class="evo-how">Doesn’t evolve from another Pokémon.</div>`;
+  const into = nexts.length ? `<div style="margin-top:10px;"><strong>Evolves into</strong>${nexts.map(n => { const i = evoInfo(n); return `<div class="evo-into"><span class="chip" data-nav-species="${esc(n.name)}">${esc(n.name)}</span> <span class="evo-how">${esc(i ? i.text : '')}${evoItemBadge(i)}</span></div>`; }).join('')}</div>` : (s.evoOrder >= 1 && !prior && !info ? `<div class="evo-how" style="margin-top:6px;">It doesn’t evolve into anything.</div>` : '');
+  return `<div class="panel" style="margin-bottom:18px;"><div class="section-title" style="margin-top:0;">How it evolves</div>${first}${into}</div>`;
+}
+
+/* ---------------- Layout options ---------------- */
+var arrSecCache = null;
+function syncLayoutOpts(){
+  const st = STATE.settings || (STATE.settings = {});
+  if(st.pinFirst === undefined) st.pinFirst = ['Arceus'];   // Arceus always leads its section (you can remove this in Layout)
+  LAYOUT_OPTS = { familyRows: st.familyRows || 'off', sectionFamilyRows: st.sectionFamilyRows || {}, pinFirst: Array.isArray(st.pinFirst) ? st.pinFirst : [], sectionOrder: st.sectionOrder || {} };
+}
+function layoutPreview(over){
+  const keep = LAYOUT_OPTS; LAYOUT_OPTS = Object.assign({}, LAYOUT_OPTS, over || {});
+  try{ const rows = computeBinderLayout(SPECIES); const pages = rows.length ? rows[rows.length-1].page : 0; return { pages, empty: pages*9 - rows.length }; }
+  finally{ LAYOUT_OPTS = keep; }
+}
+const FAM_MODES = [
+  ['off',   'Packed together', 'The next Pokémon goes in the very next pocket, even if it is a different evolution line (how the binder works now).'],
+  ['lines', 'Evolution lines get their own row', 'A line of two or more (Ivysaur’s line, say) starts on a new row of three. Single Pokémon still share rows with each other.'],
+  ['all',   'Every Pokémon family starts on a new row', 'Each new family starts at the left of a row, including Pokémon that don’t evolve.'],
+];
+function openLayoutOptions(){
+  const cur = LAYOUT_OPTS.familyRows || 'off', now = BINDER_MAX_PAGE;
+  const pv = {}; FAM_MODES.forEach(m => { pv[m[0]] = layoutPreview({ familyRows:m[0] }); });
+  const pins = (LAYOUT_OPTS.pinFirst || []);
+  const nOver = Object.keys(LAYOUT_OPTS.sectionFamilyRows || {}).length;
+  openModal('Binder layout', `
+    <div class="section-title" style="margin-top:0;">Start new evolution lines on a new row</div>
+    ${FAM_MODES.map(m => `<button class="lay-opt ${cur===m[0]?'on':''}" data-k2="fam-mode" data-v="${m[0]}" aria-pressed="${cur===m[0]}">
+        <span class="lay-t">${esc(m[1])}</span><span class="lay-d">${esc(m[2])}</span>
+        <span class="lay-n">${fmtInt(pv[m[0]].pages)} pages · ${fmtInt(pv[m[0]].empty)} empty pockets${m[0]===cur ? ' (now)' : (pv[m[0]].pages>now ? ` · +${fmtInt(pv[m[0]].pages-now)} pages` : pv[m[0]].pages<now ? ` · ${fmtInt(pv[m[0]].pages-now)} pages` : '')}</span></button>`).join('')}
+    ${nOver ? `<p class="tx-hint">${fmtInt(nOver)} section${nOver===1?' has':'s have'} its own setting (chosen in Arrange), and those keep it.</p>` : `<p class="tx-hint">You can also set this for just one section: Binder › Arrange.</p>`}
+    <div class="section-title">Always first in their section</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${pins.length ? pins.map(p => `<span class="chip">${esc(p)} <button class="iconbtn xs" data-k2="pin-del" data-v="${esc(p)}" aria-label="Stop putting ${esc(p)} first">${ICONS.close}</button></span>`).join('') : '<span class="tx-hint">Nothing pinned.</span>'}</div>
+    <div class="field"><label>Pin another Pokémon (its whole evolution family goes first in its section)</label>${speciesPickerHTML({ id:'pinAdd', placeholder:'Type to search…' })}</div>
+    <button class="btn" data-k2="pin-add">Pin it</button>
+    <p class="tx-hint">A pinned Pokémon sits right after the section’s label, before any row groups.</p>`,
+    `<button class="btn ghost" data-action="close-modal">Done</button>`);
+  wireSpeciesPickers($('#modalOverlay'));
+}
+function layoutSetMode(v){
+  layoutSnapshot(); STATE.settings.familyRows = v === 'lines' || v === 'all' ? v : 'off'; layoutSave();
+  toast('Layout updated: ' + BINDER_MAX_PAGE + ' pages.'); openLayoutOptions(); render();
+}
+function layoutSnapshot(){
+  const st = STATE.settings;
+  arrUndo.push(JSON.stringify({ so: st.sectionOrder || {}, sf: st.sectionFamilyRows || {}, fr: st.familyRows || 'off', pf: st.pinFirst, rc: st.rowClusters || {} }));
+  if(arrUndo.length > 40) arrUndo.shift();
+}
+function layoutSave(){ persist('settings'); rebuildBinder(); }
+function layoutUndo(){
+  const j = arrUndo.pop(); if(!j){ toast('Nothing to undo.'); return; }
+  const o = JSON.parse(j), st = STATE.settings;
+  st.sectionOrder = o.so; st.sectionFamilyRows = o.sf; st.familyRows = o.fr; st.pinFirst = o.pf; st.rowClusters = o.rc;
+  arrSel = null; layoutSave(); toast('Undone.'); render();
+}
+var arrUndo = [];
+var binderArrange = false, arrSel = null, arrPending = null, arrDrag = null;
+
+/* ---------------- Arranging a section by hand ---------------- */
+function arrSections(){
+  const map = new Map();
+  BINDER.forEach(r => {
+    const key = layoutSecKey(r.category, r.subcategory);
+    let s = map.get(key); if(!s){ s = { key, category:r.category, subcategory:r.subcategory, group:r.group, pages:new Set(), body:[] }; map.set(key, s); }
+    s.pages.add(r.page);
+    if(r.type === 'POKÉMON' || r.type === 'ROW LABEL' || r.type === 'CUSTOM LABEL') s.body.push(r);
+  });
+  map.forEach(s => { s.first = s.body.length ? s.body[0].slot : null; });
+  return map;
+}
+function arrSecs(){ return arrSecCache || (arrSecCache = arrSections()); }
+function arrSecTitle(key){ const s = arrSecs().get(key); if(!s) return key; return s.subcategory && s.subcategory !== NO_SUB ? s.category + ' › ' + s.subcategory : s.category; }
+function arrCell(page, pocket){
+  const rows = binderByPage.get(page) || []; if(!rows.length) return null;
+  const secKey = layoutSecKey(rows[0].category, rows[0].subcategory), sec = arrSecs().get(secKey); if(!sec) return null;
+  const ref = rows[0], slotAt = ref.slot + (pocket - ref.pocket);
+  const pos = sec.first == null ? null : slotAt - sec.first;
+  const row = rows.find(r => r.pocket === pocket);
+  if(row){
+    if(row.type === 'POKÉMON') return { kind:'p', secKey, pos, name:row.display, row };
+    if(row.type === 'ROW LABEL' || row.type === 'CUSTOM LABEL') return { kind:'label', secKey, pos, text:row.display, row, id: row.type === 'CUSTOM LABEL' ? row.key.slice(8) : null };
+    return { kind:'auto', secKey, pos:null, row };
+  }
+  if(pos == null || pos < 0) return { kind:'none', secKey, pos:null };
+  return { kind:'empty', secKey, pos };
+}
+// The section's pockets, in order, taken from what the binder shows right now (so Pokémon that arrived since you last arranged it are included).
+function arrItems(secKey){
+  const sec = arrSecs().get(secKey), items = []; if(!sec || sec.first == null) return items;
+  let prev = sec.first - 1;
+  sec.body.forEach(r => {
+    for(let k = prev + 1; k < r.slot; k++) items.push({ k:'blank' });
+    if(r.type === 'POKÉMON') items.push({ k:'p', n:r.display });
+    else items.push({ k:'label', t:r.display, id: r.type === 'CUSTOM LABEL' ? r.key.slice(8) : uid() });
+    prev = r.slot;
+  });
+  return items;
+}
+function arrCommit(secKey, items){
+  while(items.length && items[items.length-1].k === 'blank') items.pop();
+  if(!STATE.settings.sectionOrder) STATE.settings.sectionOrder = {};
+  STATE.settings.sectionOrder[secKey] = items;
+  arrSel = null; arrPending = null;
+  layoutSave(); render();
+}
+function arrPad(items, to){ while(items.length <= to) items.push({ k:'blank' }); }
+function arrApply(secKey, from, to, how){
+  if(from === to) return;
+  const items = arrItems(secKey); arrPad(items, to); layoutSnapshot();
+  if(how === 'swap'){ const t = items[from]; items[from] = items[to]; items[to] = t; }
+  else if(how === 'move'){ items[to] = items[from]; items[from] = { k:'blank' }; }
+  else { const x = items.splice(from, 1)[0]; items.splice(to, 0, x); }
+  arrCommit(secKey, items);
+}
+function arrPlaceNamed(secKey, name, to){
+  const items = arrItems(secKey), from = items.findIndex(x => x.k === 'p' && x.n === name); if(from < 0) return;
+  arrPad(items, to);
+  arrApply(secKey, from, to, items[to].k === 'blank' ? 'move' : 'swap');
+}
+function arrAddLabel(secKey, pos, text, slide){
+  const items = arrItems(secKey); arrPad(items, pos); layoutSnapshot();
+  const lab = { k:'label', t:text, id:uid() };
+  if(items[pos].k === 'blank' && !slide) items[pos] = lab; else items.splice(pos, 0, lab);
+  arrCommit(secKey, items);
+}
+function arrEditLabel(secKey, pos, text){ const items = arrItems(secKey); if(!items[pos] || items[pos].k !== 'label') return; layoutSnapshot(); items[pos] = { k:'label', t:text, id: items[pos].id || uid() }; arrCommit(secKey, items); }
+function arrRemoveAt(secKey, pos, closeGap){
+  const items = arrItems(secKey); if(!items[pos]) return; layoutSnapshot();
+  if(closeGap) items.splice(pos, 1); else items[pos] = { k:'blank' };
+  arrCommit(secKey, items);
+}
+function arrInsertBlank(secKey, pos){ const items = arrItems(secKey); arrPad(items, pos); layoutSnapshot(); items.splice(pos, 0, { k:'blank' }); arrCommit(secKey, items); }
+function arrReset(secKey){
+  layoutSnapshot(); if(STATE.settings.sectionOrder) delete STATE.settings.sectionOrder[secKey];
+  arrSel = null; layoutSave(); toast('That section is back to automatic order.'); render();
+}
+function arrSetSecFam(secKey, v){
+  layoutSnapshot(); if(!STATE.settings.sectionFamilyRows) STATE.settings.sectionFamilyRows = {};
+  if(v) STATE.settings.sectionFamilyRows[secKey] = v; else delete STATE.settings.sectionFamilyRows[secKey];
+  layoutSave(); render();
+}
+function arrPocketHTML(page, pocket){
+  const c = arrCell(page, pocket), ap = page + ':' + pocket;
+  if(!c || c.kind === 'none') return `<div class="pocket empty"></div>`;
+  const fine = window.matchMedia && matchMedia('(pointer:fine)').matches;
+  const isSel = arrSel && c.pos != null && arrSel.secKey === c.secKey && arrSel.pos === c.pos;
+  if(c.kind === 'auto'){
+    const r = c.row, txt = STATE.labelOverrides[r.key] || r.display;
+    return `<div class="pocket label arr-auto"><div class="lv">${esc(r.labelLevel||'')}</div><div class="nm">${esc(txt)}</div></div>`;
+  }
+  if(c.kind === 'empty') return `<div class="pocket empty arr arr-empty ${isSel?'arr-sel':''}" data-ap="${ap}" role="button" tabindex="0" aria-label="Empty pocket ${pocket}. Tap to add a label or place a Pokémon"><span class="arr-plus" aria-hidden="true">＋</span></div>`;
+  if(c.kind === 'label'){
+    const lv = c.row.type === 'ROW LABEL' ? 'THE GROUP' : 'NOTE';
+    return `<div class="pocket label arr ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0"><div class="lv">${lv}</div><div class="nm">${esc(c.text)}</div></div>`;
+  }
+  const sp = speciesByName.get(c.name), owned = speciesOwnedQty(c.name) > 0 || !!STATE.manualOwned[c.name];
+  return `<div class="pocket arr ${owned?'owned':'missing'} ${c.row.fresh?'arr-fresh':''} ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0">
+    ${owned && sp ? `<div class="pocket-art">${speciesImgTag(sp,'pocket-img')}</div>` : ''}
+    <div class="pocket-overlay"><div class="top"><span class="dexno">${c.row.dex && !String(c.row.dex).startsWith('TBD') ? '#'+String(c.row.dex).padStart(4,'0') : 'G10'}</span>${sp && sp.types ? `<span class="typedots">${typeDots(sp.types)}</span>` : ''}</div>
+    <div class="body"><div class="nm">${esc(c.name)}</div>${c.row.fresh ? '<div class="evomini">new here · at the end</div>' : ''}</div><div class="foot"></div></div></div>`;
+}
+function arrToolbarHTML(){
+  const rows = binderByPage.get(binderPage) || [], key = rows.length ? layoutSecKey(rows[0].category, rows[0].subcategory) : null;
+  const manual = key && STATE.settings.sectionOrder && STATE.settings.sectionOrder[key];
+  const nFresh = rows.filter(r => r.fresh).length;
+  const secFam = key && STATE.settings.sectionFamilyRows && STATE.settings.sectionFamilyRows[key] || '';
+  const sel = arrSel ? (() => {
+    const isL = arrSel.kind === 'label';
+    return `<div class="card arr-selbar"><div><strong>${isL ? 'Label' : ''} ${esc(isL ? arrSel.text : arrSel.name)}</strong> is picked up. Tap the pocket it should go to.</div>
+      <div class="btns">
+        <button class="btn sm" data-k2="arr-moveto">Move to page / pocket…</button>
+        ${isL ? `<button class="btn sm" data-k2="arr-label-edit">Rename</button><button class="btn sm" data-k2="arr-label-del" data-close="0">Remove (leave empty)</button><button class="btn sm" data-k2="arr-label-del" data-close="1">Remove and close the gap</button>`
+              : `<button class="btn sm" data-k2="arr-recat">Move to another section…</button>`}
+        <button class="btn sm ghost" data-k2="arr-cancel">Put it down</button>
+      </div></div>`;
+  })() : '';
+  return `<div class="binder-edit-toolbar arrbar">
+      <div class="hint">Tap a pocket to pick it up, then tap where it goes. Tap a <strong>＋</strong> pocket to add a label or a Pokémon.${(window.matchMedia && matchMedia('(pointer:fine)').matches) ? ' Dragging works too.' : ''}</div>
+      <div class="btns"><button class="btn ghost" data-k2="arr-undo" ${arrUndo.length?'':'disabled'}>${ICONS.left||''} Undo</button></div>
+    </div>
+    ${key ? `<div class="card arr-sec"><div><strong>${esc(arrSecTitle(key))}</strong> · ${manual ? 'arranged by hand' : 'automatic order'}${nFresh ? ` · ${nFresh} new Pokémon at the end of this section` : ''}</div>
+      <div class="btns">
+        <label class="arr-fam">New row for each line: <select data-k2sel="sec-fam" data-sec="${esc(key)}"><option value="" ${secFam===''?'selected':''}>Same as everywhere</option><option value="off" ${secFam==='off'?'selected':''}>No</option><option value="lines" ${secFam==='lines'?'selected':''}>Evolution lines</option><option value="all" ${secFam==='all'?'selected':''}>Every family</option></select></label>
+        ${manual ? `<button class="btn sm" data-k2="arr-reset" data-sec="${esc(key)}">Back to automatic order</button>` : ''}
+      </div></div>` : ''}
+    ${sel}`;
+}
+function arrTap(ap){
+  const [pg, pk] = ap.split(':').map(Number), c = arrCell(pg, pk); if(!c) return;
+  if(!arrSel){
+    if(c.kind === 'p' || c.kind === 'label'){ arrSel = { secKey:c.secKey, pos:c.pos, kind:c.kind, name:c.name, text:c.text, id:c.id }; render(); return; }
+    if(c.kind === 'empty'){ openArrEmptySheet(c); return; }
+    return;
+  }
+  if(c.secKey !== arrSel.secKey){ toast('That pocket is in a different section. Use “Move to another section…” to send it there.', 3600); return; }
+  if(c.kind === 'auto' || c.kind === 'none') return;
+  if(c.pos === arrSel.pos){ arrSel = null; render(); return; }
+  openArrTargetSheet(c);
+}
+function arrCellName(c){ return c.kind === 'p' ? c.name : c.kind === 'label' ? 'the label “' + c.text + '”' : 'an empty pocket'; }
+function openArrTargetSheet(c){
+  arrPending = { secKey:c.secKey, to:c.pos };
+  const nm = arrSel.kind === 'label' ? 'the label “' + arrSel.text + '”' : arrSel.name, empty = c.kind === 'empty';
+  openModal('Where should it go?', `
+    <p style="margin:0 0 10px;">Moving <strong>${esc(nm)}</strong> to ${empty ? 'this empty pocket' : 'where <strong>' + esc(arrCellName(c)) + '</strong> is'}.</p>
+    ${empty ? `<button class="btn primary arr-btn" data-k2="arr-do" data-how="move">Put it in this empty pocket</button>
+               <button class="btn arr-btn" data-k2="arr-do" data-how="slide">Slide it in here, everything after it moves along</button>`
+            : `<button class="btn primary arr-btn" data-k2="arr-do" data-how="swap">Swap places with ${esc(arrCellName(c))}</button>
+               <button class="btn arr-btn" data-k2="arr-do" data-how="slide">Slide it in here, everything after it moves along</button>`}`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button>`);
+}
+function openArrEmptySheet(c){
+  arrPending = { secKey:c.secKey, to:c.pos };
+  const items = arrItems(c.secKey), isGap = c.pos < items.length;
+  openModal('Empty pocket', `
+    <button class="btn primary arr-btn" data-k2="arr-label-new">Add a label card here…</button>
+    <button class="btn arr-btn" data-k2="arr-put-list">Put a Pokémon from this section here…</button>
+    ${isGap ? `<button class="btn arr-btn" data-k2="arr-gap">Close this gap (everything after it moves up)</button>` : ''}
+    <button class="btn arr-btn" data-k2="arr-addblank">Add another empty pocket here (push everything along)</button>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button>`);
+}
+function openArrPutList(){
+  const p = arrPending; if(!p) return;
+  const names = arrItems(p.secKey).filter(x => x.k === 'p').map(x => x.n);
+  openModal('Which Pokémon goes here?', `<div class="spk-list" style="max-height:55vh;">${names.map(n => `<button class="spk-row" data-k2="arr-put" data-name="${esc(n)}"><span class="spk-nm">${esc(n)}</span></button>`).join('')}</div>`, `<button class="btn ghost" data-action="close-modal">Cancel</button>`);
+}
+function openArrLabelPrompt(mode){
+  const p = arrPending, cur = mode === 'edit' && arrSel ? arrSel.text : '';
+  openModal(mode === 'edit' ? 'Rename label card' : 'New label card', `
+    <div class="field"><label>Text on the card (a sub-heading, a note, “Shiny ones next”…)</label><input type="text" id="arrLabText" maxlength="60" value="${esc(cur)}"></div>
+    ${mode === 'edit' ? '' : `<label class="tx-check"><input type="checkbox" id="arrLabSlide"> Push everything after it along (instead of using only this empty pocket)</label>`}`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="arrLabGo">Save</button>`);
+  const go = () => {
+    const t = ($('#arrLabText').value || '').trim(); if(!t){ toast('Type something for the card.'); return; }
+    const slide = !!($('#arrLabSlide') && $('#arrLabSlide').checked); closeModal();
+    if(mode === 'edit'){ arrEditLabel(arrSel.secKey, arrSel.pos, t); } else if(p){ arrAddLabel(p.secKey, p.to, t, slide); }
+  };
+  $('#arrLabGo').addEventListener('click', go); $('#arrLabText').addEventListener('keydown', e => { if(e.key === 'Enter') go(); }); $('#arrLabText').focus();
+}
+function openArrMoveTo(){
+  if(!arrSel) return;
+  openModal('Move to a page and pocket', `
+    <div class="field"><label>Page (1–${BINDER_MAX_PAGE})</label><input type="number" id="mtP" min="1" max="${BINDER_MAX_PAGE}" value="${binderPage}"></div>
+    <div class="field"><label>Pocket (1–9, left to right, top to bottom)</label><input type="number" id="mtK" min="1" max="9" value="1"></div>
+    <p class="tx-hint">It has to be in the same section.</p>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="mtGo2">Next</button>`);
+  $('#mtGo2').addEventListener('click', () => {
+    const pg = parseInt($('#mtP').value, 10), pk = parseInt($('#mtK').value, 10), c = arrCell(pg, pk);
+    if(!c || c.secKey !== arrSel.secKey){ toast('That pocket is in a different section.'); return; }
+    if(c.kind === 'auto' || c.kind === 'none'){ toast('That pocket can’t be used.'); return; }
+    closeModal(); if(c.pos === arrSel.pos) return; openArrTargetSheet(c);
+  });
+}
+function arrDropOn(ap){
+  if(!arrDrag) return; const [pg, pk] = ap.split(':').map(Number), c = arrCell(pg, pk); const d = arrDrag; arrDrag = null;
+  if(!c || c.secKey !== d.secKey || c.pos == null || c.kind === 'auto' || c.kind === 'none' || c.pos === d.pos) return;
+  arrApply(d.secKey, d.pos, c.pos, c.kind === 'empty' ? 'move' : 'swap');
+  toastWithAction(c.kind === 'empty' ? 'Moved.' : 'Swapped.', 'Undo', layoutUndo, 5000);
+}
+
+/* ---------------- Row groups (sub-sub categories) ----------------
+   A row group is a short run of Pokémon inside one section that starts on its own row of three pockets,
+   with a small label card in front ("Foxes", "Mushrooms"). They cost one label pocket plus whatever is left of the row before. */
+const RG_SUGGESTIONS = [
+  { id:'rg-rodents', cat:'Mammals - Land', sub:'Rodents', title:'Rodents: mice, then rats and chipmunks',
+    why:'Splits the rodents into Pikachu’s mouse-like relatives and the rats, beavers and chipmunks. This section has spare pockets, so it should fit on the same pages.',
+    groups:[ {l:'Mice & Electric Rodents', n:['Pichu','Dedenne','Pachirisu','Emolga','Togedemaru','Plusle','Minun','Morpeko','Tandemaus']}, {l:'Rats, Beavers & Chipmunks', n:['Rattata','Alolan Rattata','Bidoof','Patrat','Skwovet','Minccino','Pawmi']} ] },
+  { id:'rg-fairies', cat:'Humanoid & Folk Beings', sub:'Fairies, Nymphs & Goblins', title:'Fairies: pink puffs, then goblins and imps',
+    why:'Keeps the round pink fairy babies together, then the mischievous goblin-like ones. Spare pockets here make it nearly free.',
+    groups:[ {l:'Fairy Babies & Pink Puffs', n:['Cleffa','Igglybuff','Togepi','Happiny']}, {l:'Goblins, Imps & Tricksters', n:['Impidimp','Sableye','Mawile','Tinkatink']} ] },
+  { id:'rg-spectral', cat:'Spectral & Undead', sub:NO_SUB, title:'Ghosts: masks and dolls, then floating spirits',
+    why:'One group for ghosts that hide behind masks, dolls and shrouds, one for floating spirits and balloons.',
+    groups:[ {l:'Masks, Dolls & Shrouds', n:['Shuppet','Duskull','Yamask','Mimikyu']}, {l:'Floating Spirits', n:['Drifloon','Misdreavus','Gastly','Froslass']} ] },
+  { id:'rg-fish', cat:'Fish & Aquatic Animals', sub:'Fish, Seahorses & Pipefish', title:'Fish: pretty fish, then seahorses and pipefish',
+    why:'Gathers the decorative fish and the seahorse and pipefish lines. Everything else stays in its normal order after them.',
+    groups:[ {l:'Pretty & Decorative Fish', n:['Goldeen','Feebas','Finneon','Luvdisc','Alomomola']}, {l:'Seahorses & Pipefish', n:['Horsea','Skrelp']} ] },
+  { id:'rg-dogs', cat:'Mammals - Land', sub:'Dogs, Wolves & Foxes', title:'Dogs, wolves and foxes: foxes, then pet dogs',
+    why:'Your biggest section. Foxes and pet or working dogs are easy to spot; wolves and wild dogs stay in their normal order after them. A third group (wolves) would cost a page, so it is left out.',
+    groups:[ {l:'Foxes', n:['Vulpix','Fennekin','Eevee','Zorua','Abra']}, {l:'Pet & Working Dogs', n:['Lillipup','Yamper','Fidough','Maschiff','Snubbull','Furfrou (Natural)','Greavard']} ] },
+  { id:'rg-crocs', cat:'Reptiles', sub:'Crocodiles & Alligators', title:'Crocodiles and alligators',
+    why:'Totodile and Fuecoco are alligators; Sandile’s line are crocodiles.',
+    groups:[ {l:'Alligators', n:['Totodile','Fuecoco']}, {l:'Crocodiles', n:['Sandile']} ] },
+  { id:'rg-fungi', cat:'Plants & Fungi', sub:'Fungi & Other Non-Flowering Plants', title:'Fungi: mushrooms first',
+    why:'Puts the mushroom Pokémon together at the front; Toedscool follows on its own.',
+    groups:[ {l:'Mushrooms', n:['Foongus','Shroomish','Morelull','Brute Bonnet']} ] },
+  { id:'rg-horses', cat:'Mammals - Land', sub:'Horses', title:'Horses: legendary, then everyday horses',
+    why:'The legendary steeds sit apart from the farm and plains horses.',
+    groups:[ {l:'Legendary Steeds', n:['Glastrier','Spectrier','Keldeo (Normal)']}, {l:'Everyday Horses', n:['Ponyta','Mudbray','Blitzle']} ] },
+  { id:'rg-food', cat:'Food & Culinary', sub:NO_SUB, title:'Food: sweets, then tea',
+    why:'Cream and dessert Pokémon together, tea-themed Pokémon together.',
+    groups:[ {l:'Sweets & Cream', n:['Milcery','Swirlix','Vanillite']}, {l:'Tea & Teapots', n:['Sinistea','Poltchageist']} ] },
+  { id:'rg-unown', cat:'Everyday Objects', sub:'Symbols, Paper & Ancient Glyphs', title:'Symbols: Unown get their own row group',
+    why:'The Unown alphabet starts on its own row after Kartana and Sigilyph.',
+    groups:[ {l:'The Unown Alphabet', n:['Unown']} ] },
+];
+function rgSpeciesOf(cat, sub){ return SPECIES.filter(s => s.category === cat && (s.subcategory || NO_SUB) === sub); }
+function rgResolve(sug){
+  const inSec = rgSpeciesOf(sug.cat, sug.sub), out = [];
+  sug.groups.forEach(g => {
+    const fams = new Set(); g.n.forEach(n => { const sp = speciesByName.get(n); if(sp && sp.category === sug.cat && (sp.subcategory || NO_SUB) === sug.sub) fams.add(sp.evoFamily || sp.name); });
+    out.push(inSec.filter(s => fams.has(s.evoFamily || s.name)));
+  });
+  return out;
+}
+function rgState(sug){
+  const res = rgResolve(sug), rc = STATE.settings.rowClusters || {};
+  if(!res.some(m => m.length)) return 'none';
+  const all = res.every((m, i) => m.every(s => rc[s.name] && rc[s.name].l === sug.groups[i].l));
+  return all ? 'applied' : 'open';
+}
+function rgPreview(sug){
+  const res = rgResolve(sug), keep = ROW_CLUSTERS, rc = Object.assign({}, ROW_CLUSTERS);
+  res.forEach((m, i) => m.forEach(s => { rc[s.name] = { l:sug.groups[i].l, o:i }; }));
+  ROW_CLUSTERS = rc;
+  try{ const rows = computeBinderLayout(SPECIES); return rows.length ? rows[rows.length-1].page : 0; } finally{ ROW_CLUSTERS = keep; }
+}
+function rgApply(sug){
+  const res = rgResolve(sug); layoutSnapshot();
+  if(!STATE.settings.rowClusters) STATE.settings.rowClusters = {};
+  res.forEach((m, i) => m.forEach(s => { STATE.settings.rowClusters[s.name] = { l:sug.groups[i].l, o:i }; }));
+  layoutSave(); toast('Row groups added to ' + sug.sub + '.'); render();
+}
+function rgRemoveSug(sug){
+  const res = rgResolve(sug); layoutSnapshot(); const rc = STATE.settings.rowClusters || {};
+  res.forEach((m, i) => m.forEach(s => { if(rc[s.name] && rc[s.name].l === sug.groups[i].l) delete rc[s.name]; }));
+  layoutSave(); toast('Those row groups were removed.'); render();
+}
+function rgMine(){
+  const rc = STATE.settings.rowClusters || {}, by = new Map();
+  Object.keys(rc).forEach(n => { const sp = speciesByName.get(n); if(!sp) return; const key = layoutSecKey(sp.category, sp.subcategory || NO_SUB) + '##' + rc[n].l; if(!by.has(key)) by.set(key, { sec:layoutSecKey(sp.category, sp.subcategory || NO_SUB), cat:sp.category, sub:sp.subcategory || NO_SUB, l:rc[n].l, o:rc[n].o, names:[] }); by.get(key).names.push(n); });
+  return [...by.values()].sort((a,b) => a.sec.localeCompare(b.sec) || a.o - b.o);
+}
+function renderRowGroups(){
+  const dismissed = STATE.settings.rgDismissed || {}, now = BINDER_MAX_PAGE;
+  const cards = RG_SUGGESTIONS.map(sug => {
+    const st = rgState(sug); if(st === 'none') return '';
+    const isD = !!dismissed[sug.id], res = rgResolve(sug);
+    const pages = st === 'applied' ? now : rgPreview(sug);
+    const delta = pages - now;
+    const cost = st === 'applied' ? 'In use' : delta === 0 ? 'Fits on the same pages' : delta > 0 ? `+${delta} page${delta===1?'':'s'}` : `${delta} pages`;
+    return `<div class="card rg-card ${isD?'rg-dim':''}"><div class="rg-head"><strong>${esc(sug.title)}</strong> <span class="badge ${st==='applied'?'owned':delta<=0?'pick':'review'}">${esc(cost)}</span></div>
+      <div class="meta">${esc(sug.cat)}${sug.sub !== NO_SUB ? ' › ' + esc(sug.sub) : ''}</div>
+      <p class="rg-why">${esc(sug.why)}</p>
+      <div class="rg-list">${sug.groups.map((g, i) => `<div><strong>${esc(g.l)}</strong> <span class="set">${res[i].length ? esc(res[i].slice(0, 7).map(s => s.name).join(', ')) + (res[i].length > 7 ? ' and ' + (res[i].length - 7) + ' more' : '') : 'none here'}</span></div>`).join('')}</div>
+      <div class="btns" style="margin-top:10px;">
+        ${st === 'applied' ? `<button class="btn" data-k2="rg-remove" data-id="${sug.id}">Remove these groups</button>` : `<button class="btn primary" data-k2="rg-apply" data-id="${sug.id}">Apply</button>${isD ? `<button class="btn ghost" data-k2="rg-restore" data-id="${sug.id}">Bring back</button>` : `<button class="btn ghost" data-k2="rg-dismiss" data-id="${sug.id}">Dismiss</button>`}`}
+      </div></div>`;
+  }).join('');
+  const mine = rgMine();
+  const mineHTML = mine.length ? mine.map(g => `<div class="card rg-card"><div class="rg-head"><strong>${esc(g.l)}</strong> <span class="set">${fmtInt(g.names.length)} Pokémon</span></div><div class="meta">${esc(g.cat)}${g.sub !== NO_SUB ? ' › ' + esc(g.sub) : ''}</div>
+      <div class="btns" style="margin-top:8px;"><button class="btn sm" data-k2="rg-rename" data-sec="${esc(g.sec)}" data-l="${esc(g.l)}">Rename</button><button class="btn sm" data-k2="rg-edit" data-sec="${esc(g.sec)}" data-l="${esc(g.l)}">Choose Pokémon</button><button class="btn sm" data-k2="rg-up" data-sec="${esc(g.sec)}" data-l="${esc(g.l)}" aria-label="Move this group earlier">↑</button><button class="btn sm" data-k2="rg-down" data-sec="${esc(g.sec)}" data-l="${esc(g.l)}" aria-label="Move this group later">↓</button><button class="btn sm ghost" data-k2="rg-del" data-sec="${esc(g.sec)}" data-l="${esc(g.l)}">Delete</button></div></div>`).join('')
+    : `<div class="card" style="padding:14px;">You haven’t added any yet. Apply a suggestion above, or make your own.</div>`;
+  return `
+    <div class="pagehead"><div><h1>Row groups</h1><div class="sub">Sub-sub categories inside a section</div></div><button class="btn" data-nav="tools">← Tools</button></div>
+    <div class="card" style="padding:14px;margin-bottom:12px;font-size:13.5px;">
+      <div class="section-title" style="margin-top:0;">How this works</div>
+      <p style="margin:6px 0;">A row group is a small heading inside a section (for example <strong>Foxes</strong> inside Dogs, Wolves &amp; Foxes). Each group starts at the left of a new row and gets its own label pocket. The cost is one pocket for the label plus whatever is left over on the row before, so sections with spare pockets can take groups for free. The tag on each suggestion shows the real page count if you apply it.</p>
+      <p style="margin:6px 0;">Nothing moves until you tap Apply, and Undo (in Binder › Arrange) takes the last change back. A section you arrange by hand ignores row groups.</p>
+      <div class="btns" style="margin-top:8px;"><button class="btn" data-k2="rg-new">Make my own row group</button><button class="btn" data-k2="lay-open">Layout options…</button>${arrUndo.length ? `<button class="btn ghost" data-k2="arr-undo">Undo last change</button>` : ''}</div>
+    </div>
+    <div class="section-title">Suggestions</div>${cards || '<div class="card" style="padding:14px;">No suggestions apply to your current sections.</div>'}
+    <div class="section-title">Your row groups</div>${mineHTML}`;
+}
+function rgFindGroup(sec, l){ return rgMine().find(g => g.sec === sec && g.l === l); }
+function openRgPicker(secKey, existingLabel){
+  const [cat, sub] = secKey.split('||');
+  const list = SPECIES.filter(s => s.category === cat && (s.subcategory || NO_SUB) === sub);
+  const rc = STATE.settings.rowClusters || {};
+  const g = existingLabel ? rgFindGroup(secKey, existingLabel) : null, sel = new Set(g ? g.names : []);
+  // list one line per evolution family, ticking a family ticks every member
+  const fams = new Map(); list.forEach(s => { const k = s.evoFamily || s.name; if(!fams.has(k)) fams.set(k, []); fams.get(k).push(s); });
+  openModal(existingLabel ? 'Choose Pokémon for “' + existingLabel + '”' : 'New row group in ' + (sub !== NO_SUB ? sub : cat), `
+    ${existingLabel ? '' : `<div class="field"><label>Name of the group</label><input type="text" id="rgName" maxlength="40" placeholder="Foxes, Mushrooms, …"></div>`}
+    <div class="spk-list" style="max-height:48vh;">${[...fams.entries()].map(([k, ms]) => { const inOther = ms.some(m => rc[m.name] && (!existingLabel || rc[m.name].l !== existingLabel)); const on = ms.every(m => sel.has(m.name));
+      return `<label class="spk-row rg-pick"><input type="checkbox" class="rgChk" data-fam="${esc(k)}" ${on?'checked':''}> <span class="spk-nm">${esc(ms[0].name)}${ms.length>1?` <span class="set">+ ${ms.length-1} more in its line</span>`:''}</span>${inOther ? '<span class="set">in another group</span>' : ''}</label>`; }).join('')}</div>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="rgGo">Save</button>`);
+  $('#rgGo').addEventListener('click', () => {
+    const label = existingLabel || ($('#rgName').value || '').trim(); if(!label){ toast('Give the group a name.'); return; }
+    const chosen = new Set($$('.rgChk').filter(c => c.checked).map(c => c.dataset.fam));
+    layoutSnapshot(); if(!STATE.settings.rowClusters) STATE.settings.rowClusters = {};
+    const order = g ? g.o : (rgMine().filter(x => x.sec === secKey).reduce((m, x) => Math.max(m, x.o), -1) + 1);
+    list.forEach(s => { const inG = chosen.has(s.evoFamily || s.name); const cur = STATE.settings.rowClusters[s.name];
+      if(inG) STATE.settings.rowClusters[s.name] = { l:label, o:order }; else if(cur && cur.l === label) delete STATE.settings.rowClusters[s.name]; });
+    layoutSave(); closeModal(); toast('Row group saved.'); render();
+  });
+}
+function openRgNewSection(){
+  const secs = [...arrSecs().values()].filter(s => s.body.some(r => r.type === 'POKÉMON')).sort((a,b) => arrSecTitle(a.key).localeCompare(arrSecTitle(b.key)));
+  openModal('Which section?', `<div class="field"><label>Section</label><select id="rgSec">${secs.map(s => `<option value="${esc(s.key)}">${esc(arrSecTitle(s.key))}</option>`).join('')}</select></div>`, `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="rgSecGo">Next</button>`);
+  $('#rgSecGo').addEventListener('click', () => { const k = $('#rgSec').value; closeModal(); openRgPicker(k, null); });
+}
+function rgShift(sec, l, dir){
+  const mine = rgMine().filter(g => g.sec === sec), i = mine.findIndex(g => g.l === l), j = i + dir; if(i < 0 || j < 0 || j >= mine.length) return;
+  layoutSnapshot(); const a = mine[i], b = mine[j], rc = STATE.settings.rowClusters;
+  a.names.forEach(n => { rc[n] = { l:a.l, o:b.o }; }); b.names.forEach(n => { rc[n] = { l:b.l, o:a.o }; });
+  if(a.o === b.o){ a.names.forEach(n => { rc[n].o = j; }); b.names.forEach(n => { rc[n].o = i; }); }
+  layoutSave(); render();
+}
+
+/* ---------------- Shiny binder ----------------
+   One slot for the shiny version of every Pokémon that has one, in main-binder order.
+   "Has a shiny" starts as yes for everyone; the check below asks the online Pokédex (PokéAPI) which ones really have a shiny picture, and you can flip any single one yourself. */
+var shinyFilter = 'all', shinyPage = 1, shinyRunning = false, shinyQ = '';
+function shinySt(){ const st = STATE.settings; if(!st.shiny) st.shiny = { have:{}, none:{}, checked:{} }; return st.shiny; }
+function shinyAvailable(name){ const s = shinySt(); if(s.none[name] === true) return false; if(s.none[name] === false) return true; return s.checked[name] !== false; }
+function shinyList(){
+  const seen = new Set(), out = [];
+  BINDER.forEach(r => { if(r.type === 'POKÉMON' && !seen.has(r.display)){ seen.add(r.display); const sp = speciesByName.get(r.display); if(sp) out.push(sp); } });
+  return out;
+}
+function shinyStats(){ const all = shinyList(), s = shinySt(); const av = all.filter(x => shinyAvailable(x.name)); return { total:all.length, avail:av.length, have:av.filter(x => s.have[x.name]).length, none:all.length - av.length, checked:Object.keys(s.checked).length }; }
+function shinyVisible(){
+  const s = shinySt(), q = norm(shinyQ);
+  let list = shinyList();
+  if(shinyFilter === 'none') list = list.filter(x => !shinyAvailable(x.name));
+  else list = list.filter(x => shinyAvailable(x.name));
+  if(shinyFilter === 'have') list = list.filter(x => s.have[x.name]);
+  if(shinyFilter === 'missing') list = list.filter(x => !s.have[x.name]);
+  if(q) list = list.filter(x => norm(x.name).includes(q));
+  return list;
+}
+function renderShiny(){
+  const st = shinyStats(), s = shinySt(), list = shinyVisible(), per = 9, pages = Math.max(1, Math.ceil(list.length / per));
+  shinyPage = Math.max(1, Math.min(pages, shinyPage));
+  const slice = list.slice((shinyPage-1)*per, shinyPage*per);
+  const cells = []; for(let i = 0; i < per; i++){
+    const sp = slice[i]; if(!sp){ cells.push('<div class="pocket empty"></div>'); continue; }
+    const have = !!s.have[sp.name], avail = shinyAvailable(sp.name);
+    cells.push(`<div class="pocket shiny-pocket ${have?'owned':'missing'}">
+      <div class="pocket-overlay" style="background:none;"><div class="top"><span class="dexno">${sp.dex ? '#'+String(sp.dex).padStart(4,'0') : 'G10'}</span><span class="shiny-star" aria-hidden="true">✦</span></div>
+      <div class="body"><div class="nm">${esc(sp.name)}</div><div class="taxmini">${esc(taxBreadcrumb(sp))}</div></div>
+      <div class="foot"><button class="btn sm ${have?'primary':''}" data-k2="shiny-toggle" data-name="${esc(sp.name)}" aria-pressed="${have}" ${avail?'':'disabled'}>${have?'✓ Have':'Need'}</button><button class="iconbtn xs" data-k2="shiny-none" data-name="${esc(sp.name)}" title="${avail?'This one has no shiny':'Has a shiny after all'}" aria-label="${avail?'Mark that '+esc(sp.name)+' has no shiny':'Mark that '+esc(sp.name)+' has a shiny'}">${avail?ICONS.close:ICONS.plus}</button></div></div></div>`);
+  }
+  const nav = (bottom) => `<div class="binder-toolbar ${bottom?'bottom':'top'}"><button class="btn" data-k2="shiny-prev" ${shinyPage<=1?'disabled':''}>${ICONS.left}<span class="lbl"> Prev</span></button><span class="binder-pagelabel">Page ${shinyPage} of ${pages}</span><button class="btn" data-k2="shiny-next" ${shinyPage>=pages?'disabled':''}><span class="lbl">Next </span>${ICONS.right}</button></div>`;
+  const fb = (v, t) => `<button class="chip ${shinyFilter===v?'active':''}" data-k2="shiny-filter" data-v="${v}">${t}</button>`;
+  return `
+    <div class="pagehead"><div><h1>Shiny binder</h1><div class="sub">${fmtInt(st.have)} of ${fmtInt(st.avail)} shiny forms · ${fmtInt(st.none)} marked as having no shiny</div></div>
+      <button class="btn ${shinyRunning?'':'accent'}" data-k2="shiny-check" ${shinyRunning?'disabled':''}>${shinyRunning?'Checking…':'Check which have a shiny (online)'}</button></div>
+    <div class="card" style="padding:12px;margin-bottom:12px;font-size:13px;">One slot for the shiny version of each Pokémon, in the same order as the main binder. Every Pokémon counts as having a shiny until you run the online check, which asks the Pokédex database (PokéAPI) which ones have a shiny picture${st.checked ? ` (${fmtInt(st.checked)} checked so far)` : ''}. You can flip any single Pokémon with the ✕ / ＋ button. “Mark as have” is yours to set, since Collectr doesn’t say which cards are shiny.</div>
+    <div class="toolbar"><div class="searchbar">${ICONS.search}<input type="search" id="shinySearch" placeholder="Find a Pokémon…" value="${esc(shinyQ)}" autocomplete="off"></div></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px;">${fb('all','Shiny available')}${fb('missing','Still need')}${fb('have','Have')}${fb('none','Marked: no shiny')}</div>
+    ${nav(false)}<div class="binder-page"><div class="binder-grid">${cells.join('')}</div></div>${nav(true)}`;
+}
+async function shinyCheckOne(sp, speciesCache){
+  if(typeof sp.dex !== 'number') return null;
+  let spc = speciesCache.get(sp.dex);
+  if(!spc){ spc = await fetchJSONTimeout('https://pokeapi.co/api/v2/pokemon-species/' + sp.dex); speciesCache.set(sp.dex, spc); }
+  const pick = pickVariety(sp, spc.varieties || []);
+  const pk = await fetchJSONTimeout(pick.v.pokemon.url || ('https://pokeapi.co/api/v2/pokemon/' + pick.v.pokemon.name));
+  return !!(pk.sprites && pk.sprites.front_shiny);
+}
+async function shinyRunCheck(){
+  if(shinyRunning) return; shinyRunning = true; const s = shinySt(), todo = shinyList().filter(x => s.checked[x.name] === undefined && typeof x.dex === 'number'), cache = new Map();
+  if(!todo.length){ shinyRunning = false; toast('Everything has been checked already.'); render(); return; }
+  toast('Checking ' + fmtInt(todo.length) + ' Pokémon. Keep this page open.', 4000);
+  let i = 0, done = 0, fail = 0;
+  const worker = async () => { while(i < todo.length){ const sp = todo[i++]; try{ const r = await shinyCheckOne(sp, cache); if(r !== null) s.checked[sp.name] = r; }catch(e){ fail++; } done++; if(done % 40 === 0){ persist('settings'); const el = $('#main .sub'); if(el) el.textContent = 'Checked ' + done + ' of ' + todo.length + '…'; } } };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  shinyRunning = false; persist('settings');
+  toast(fail ? ('Done. ' + fail + ' could not be reached. Run it again to retry those.') : 'Done. Shiny availability updated.', 5000); render();
+}
+
+/* ---------------- Evolution filter controls (Pokédex and Evolutions pages) ---------------- */
+function evoFilterSelectsHTML(idHow, idStone, cur, stone){
+  return `<select id="${idHow}" aria-label="How it evolves">${EVO_FILTERS.map(f => `<option value="${f[0]}" ${cur===f[0]?'selected':''}>${esc(f[1])}</option>`).join('')}</select>
+    ${cur === 'stone' ? `<select id="${idStone}" aria-label="Which stone"><option value="">Any stone</option>${EVO_STONES.map(x => `<option value="${esc(x)}" ${stone===x?'selected':''}>${esc(x)}</option>`).join('')}</select>` : ''}`;
+}
+
+/* ---------------- Tap handling for all the new buttons ---------------- */
+function handleK2(el){
+  const d = el.dataset;
+  switch(d.k2){
+    case 'lay-open': openLayoutOptions(); return true;
+    case 'fam-mode': layoutSetMode(d.v); return true;
+    case 'pin-add': {
+      const v = ($('#pinAdd') || {}).value, sp = v && speciesByName.get(v); if(!sp){ toast('Type a Pokémon and pick it from the list.'); return true; }
+      const fam = sp.evoFamily || sp.name, cur = (STATE.settings.pinFirst || []).slice(); if(!cur.includes(fam)) cur.push(fam);
+      layoutSnapshot(); STATE.settings.pinFirst = cur; layoutSave(); openLayoutOptions(); render(); return true;
+    }
+    case 'pin-del': layoutSnapshot(); STATE.settings.pinFirst = (STATE.settings.pinFirst || []).filter(x => x !== d.v); layoutSave(); openLayoutOptions(); render(); return true;
+    case 'arr-toggle': binderArrange = !binderArrange; arrSel = null; if(binderArrange) binderEditMode = false; render(); return true;
+    case 'arr-undo': layoutUndo(); return true;
+    case 'arr-cancel': arrSel = null; render(); return true;
+    case 'arr-do': if(arrSel && arrPending){ const h = d.how, s = arrSel, p = arrPending; closeModal(); arrApply(s.secKey, s.pos, p.to, h); } return true;
+    case 'arr-label-new': closeModal(); openArrLabelPrompt('new'); return true;
+    case 'arr-label-edit': openArrLabelPrompt('edit'); return true;
+    case 'arr-label-del': if(arrSel) arrRemoveAt(arrSel.secKey, arrSel.pos, d.close === '1'); return true;
+    case 'arr-put-list': closeModal(); openArrPutList(); return true;
+    case 'arr-put': { const p = arrPending; closeModal(); if(p) arrPlaceNamed(p.secKey, d.name, p.to); return true; }
+    case 'arr-gap': { const p = arrPending; closeModal(); if(p) arrRemoveAt(p.secKey, p.to, true); return true; }
+    case 'arr-addblank': { const p = arrPending; closeModal(); if(p) arrInsertBlank(p.secKey, p.to); return true; }
+    case 'arr-moveto': openArrMoveTo(); return true;
+    case 'arr-recat': if(arrSel){ openRecategorizeModal([arrSel.name]); } return true;
+    case 'arr-reset': arrReset(d.sec); return true;
+    case 'rg-apply': { const s = RG_SUGGESTIONS.find(x => x.id === d.id); if(s) rgApply(s); return true; }
+    case 'rg-remove': { const s = RG_SUGGESTIONS.find(x => x.id === d.id); if(s) rgRemoveSug(s); return true; }
+    case 'rg-dismiss': if(!STATE.settings.rgDismissed) STATE.settings.rgDismissed = {}; STATE.settings.rgDismissed[d.id] = true; persist('settings'); render(); return true;
+    case 'rg-restore': if(STATE.settings.rgDismissed) delete STATE.settings.rgDismissed[d.id]; persist('settings'); render(); return true;
+    case 'rg-new': openRgNewSection(); return true;
+    case 'rg-edit': openRgPicker(d.sec, d.l); return true;
+    case 'rg-rename': promptTextModal('Rename row group', 'Group name', d.l, nv => { layoutSnapshot(); const rc = STATE.settings.rowClusters || {}, g = rgFindGroup(d.sec, d.l); if(g) g.names.forEach(n => { rc[n] = { l:nv, o:rc[n].o }; }); layoutSave(); closeModal(); render(); }); return true;
+    case 'rg-del': confirmAction('Delete the row group “' + d.l + '”? The Pokémon stay in their section.', () => { layoutSnapshot(); const rc = STATE.settings.rowClusters || {}, g = rgFindGroup(d.sec, d.l); if(g) g.names.forEach(n => { delete rc[n]; }); layoutSave(); render(); }); return true;
+    case 'rg-up': rgShift(d.sec, d.l, -1); return true;
+    case 'rg-down': rgShift(d.sec, d.l, 1); return true;
+    case 'shiny-toggle': { const s = shinySt(); if(s.have[d.name]) delete s.have[d.name]; else s.have[d.name] = true; persist('settings'); render(); return true; }
+    case 'shiny-none': { const s = shinySt(); s.none[d.name] = shinyAvailable(d.name) ? true : false; persist('settings'); render(); return true; }
+    case 'shiny-check': shinyRunCheck(); return true;
+    case 'shiny-filter': shinyFilter = d.v; shinyPage = 1; render(); return true;
+    case 'shiny-prev': shinyPage = Math.max(1, shinyPage - 1); render(); return true;
+    case 'shiny-next': shinyPage++; render(); return true;
+  }
+  return false;
+}
+document.addEventListener('click', function(e){
+  const t = e.target; if(!t || !t.closest) return;
+  const k = t.closest('[data-k2]');
+  if(k){ if(handleK2(k)){ e.stopPropagation(); e.preventDefault(); } return; }
+  if(binderArrange){ const ap = t.closest('[data-ap]'); if(ap){ e.stopPropagation(); e.preventDefault(); arrTap(ap.dataset.ap); } }
+}, true);
+document.addEventListener('change', function(e){
+  const t = e.target; if(!t || !t.dataset) return;
+  if(t.dataset.k2sel === 'sec-fam') arrSetSecFam(t.dataset.sec, t.value);
+});
+document.addEventListener('keydown', function(e){
+  if(!binderArrange || (e.key !== 'Enter' && e.key !== ' ')) return;
+  const ap = e.target && e.target.closest && e.target.closest('[data-ap]'); if(ap){ e.preventDefault(); arrTap(ap.dataset.ap); }
+});
+document.addEventListener('dragstart', function(e){
+  if(!binderArrange) return; const ap = e.target.closest && e.target.closest('[data-ap]'); if(!ap) return;
+  const [pg, pk] = ap.dataset.ap.split(':').map(Number), c = arrCell(pg, pk);
+  if(!c || (c.kind !== 'p' && c.kind !== 'label')){ e.preventDefault(); return; }
+  arrDrag = { secKey:c.secKey, pos:c.pos }; try{ e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ap.dataset.ap); }catch(_){}
+});
+document.addEventListener('dragover', function(e){ if(binderArrange && arrDrag && e.target.closest && e.target.closest('[data-ap]')) e.preventDefault(); });
+document.addEventListener('drop', function(e){
+  if(!binderArrange || !arrDrag) return; const ap = e.target.closest && e.target.closest('[data-ap]');
+  if(ap){ e.preventDefault(); arrDropOn(ap.dataset.ap); } else arrDrag = null;
+});
+document.addEventListener('dragend', function(){ arrDrag = null; });
+document.addEventListener('input', function(e){ if(e.target && e.target.id === 'shinySearch'){ shinyQ = e.target.value; shinyPage = 1; clearTimeout(window.__shT); window.__shT = setTimeout(render, 220); } });
+
+/* a section renamed in Organize keeps its hand-arranged order and its row setting */
+function layoutRenameSection(oldCat, oldSub, newCat, newSub){
+  const st = STATE.settings; let touched = false;
+  ['sectionOrder', 'sectionFamilyRows'].forEach(k => {
+    const m = st[k]; if(!m) return;
+    Object.keys(m).slice().forEach(key => {
+      const [c, s] = key.split('||'); if(c !== oldCat) return;
+      if(oldSub != null && s !== oldSub) return;
+      const nk = layoutSecKey(newCat != null ? newCat : c, newSub != null ? newSub : s);
+      if(nk !== key){ m[nk] = m[key]; delete m[key]; touched = true; }
+    });
+  });
+  if(touched) persist('settings');
 }
 
 // Boot: the first render happens last, after every variable above has been declared,
