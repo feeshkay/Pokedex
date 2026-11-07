@@ -887,7 +887,7 @@ var ROW_CLUSTERS = {};   // Pokémon name -> {l: label, o: order}; set from Sett
    sectionFamilyRows { 'Category||Subcategory': 'off'|'lines'|'all' }   per-section override of the above
    pinFirst         names / evolution families that always sit first in their section (Arceus)
    sectionOrder     { 'Category||Subcategory': [ {k:'p',n:name} | {k:'blank'} | {k:'label',t:text,id} ] }   a section you arranged by hand */
-var LAYOUT_OPTS = { familyRows:'off', sectionFamilyRows:{}, pinFirst:[], sectionOrder:{}, formsPlace:{ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, deepRows:true, deepLabels:'deepest' };
+var LAYOUT_OPTS = { familyRows:'off', sectionFamilyRows:{}, pinFirst:[], sectionOrder:{}, formsPlace:{ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, deepRows:true, deepLabels:'deepest', subStart:'page' };
 function layoutSecKey(category, subcategory){ return category + '||' + subcategory; }
 function layoutPinned(s){ const P = LAYOUT_OPTS.pinFirst || []; return P.length > 0 && P.some(x => x === s.name || x === s.evoFamily || x === s.baseSpecies); }
 function layoutFamKey(s){ const PX = window.__PARADOX_LINKS || null, l = PX && PX[s.name]; return l ? l.family : (s.evoFamily || s.name); }
@@ -981,7 +981,8 @@ function computeBinderLayout(species){
         const list = sortByFamilyThenEvo(byPath.get(path));
         if(!list.length) continue;
         if(category!==lastCat || group!==lastGroup || subcategory!==lastSub){
-          forceNewPage();
+          // A new category always starts on a fresh page. A new sub-category does too, unless you chose "next row" in Binder › Layout.
+          if(LAYOUT_OPTS.subStart === 'row' && category===lastCat && group===lastGroup) skipToRow(); else forceNewPage();
         }
         if(group!==lastGroup){
           place({type:'GROUP LABEL',labelLevel:'GROUP',display:group,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'GROUP::'+group,taxBreak:'NEW GROUP'});
@@ -8795,7 +8796,7 @@ function syncLayoutOpts(){
   const st = STATE.settings || (STATE.settings = {});
   if(st.pinFirst === undefined) st.pinFirst = ['Arceus'];   // Arceus always leads its section (you can remove this in Layout)
   try{ taxNewRefresh(); }catch(e){}
-  LAYOUT_OPTS = { familyRows: st.familyRows || 'off', sectionFamilyRows: st.sectionFamilyRows || {}, pinFirst: Array.isArray(st.pinFirst) ? st.pinFirst : [], sectionOrder: st.sectionOrder || {}, formsPlace: Object.assign({ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, st.formsPlace || {}), deepRows: st.deepRows !== false, deepLabels: st.deepLabels || 'deepest' };
+  LAYOUT_OPTS = { familyRows: st.familyRows || 'off', sectionFamilyRows: st.sectionFamilyRows || {}, pinFirst: Array.isArray(st.pinFirst) ? st.pinFirst : [], sectionOrder: st.sectionOrder || {}, formsPlace: Object.assign({ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, st.formsPlace || {}), deepRows: st.deepRows !== false, deepLabels: st.deepLabels || 'deepest', subStart: st.subStart === 'row' ? 'row' : 'page' };
 }
 function layoutPreview(over){
   const keep = LAYOUT_OPTS; LAYOUT_OPTS = Object.assign({}, LAYOUT_OPTS, over || {});
@@ -8813,14 +8814,14 @@ function layoutSetMode(v){
 }
 function layoutSnapshot(){
   const st = STATE.settings;
-  arrUndo.push(JSON.stringify({ so: st.sectionOrder || {}, sf: st.sectionFamilyRows || {}, fr: st.familyRows || 'off', pf: st.pinFirst, rc: st.rowClusters || {}, fp: st.formsPlace, dr: st.deepRows, dl: st.deepLabels }));
+  arrUndo.push(JSON.stringify({ so: st.sectionOrder || {}, sf: st.sectionFamilyRows || {}, fr: st.familyRows || 'off', pf: st.pinFirst, rc: st.rowClusters || {}, fp: st.formsPlace, dr: st.deepRows, dl: st.deepLabels, ss: st.subStart }));
   if(arrUndo.length > 40) arrUndo.shift();
 }
 function layoutSave(){ persist('settings'); rebuildBinder(); }
 function layoutUndo(){
   const j = arrUndo.pop(); if(!j){ toast('Nothing to undo.'); return; }
   const o = JSON.parse(j), st = STATE.settings;
-  st.sectionOrder = o.so; st.sectionFamilyRows = o.sf; st.familyRows = o.fr; st.pinFirst = o.pf; st.rowClusters = o.rc; st.formsPlace = o.fp; st.deepRows = o.dr; st.deepLabels = o.dl;
+  st.sectionOrder = o.so; st.sectionFamilyRows = o.sf; st.familyRows = o.fr; st.pinFirst = o.pf; st.rowClusters = o.rc; st.formsPlace = o.fp; st.deepRows = o.dr; st.deepLabels = o.dl; st.subStart = o.ss;
   arrSel = null; layoutSave(); toast('Undone.'); render();
 }
 var arrUndo = [];
@@ -9427,8 +9428,11 @@ function openLayoutOptions(){
   const newOn = taxNewActive();
   openModal('Binder layout', `
     <p style="margin:0 0 10px;font-size:13px;"><strong>${fmtInt(now)} pages</strong> · ${fmtInt(now*9 - BINDER.length)} empty pockets right now.</p>
+    <div class="section-title" style="margin-top:0;">Where a new sub-category starts</div>
+    <div class="lay-sel"><label>Sub-categories</label>${sel('subStart', LAYOUT_OPTS.subStart === 'row' ? 'row' : 'page', [['page','New page (' + fmtInt(layoutPreview({subStart:'page'}).pages) + ' pages)'],['row','Next row (' + fmtInt(layoutPreview({subStart:'row'}).pages) + ' pages)']])}</div>
+    <p class="tx-hint">Categories always start on a new page, so your category tabs still land at the top of a page. With "next row", a sub-category label can land partway down a page.</p>
     ${newOn ? `
-    <div class="section-title" style="margin-top:0;">Sub-sub categories (third level and deeper)</div>
+    <div class="section-title">Sub-sub categories (third level and deeper)</div>
     <div class="lay-sel"><label>Where each one starts</label>${sel('deepRows', LAYOUT_OPTS.deepRows !== false ? '1' : '0', [['1','On a new row'],['0','Keep flowing, no new row']])}</div>
     <div class="lay-sel"><label>Label cards</label>${sel('deepLabels', LAYOUT_OPTS.deepLabels || 'deepest', [['deepest','One card (the deepest level)'],['all','One card for each new level'],['none','No label cards']])}</div>
     <div class="section-title">Special forms</div>
@@ -9450,7 +9454,8 @@ function openLayoutOptions(){
 }
 function layoutSetOpt(opt, v){
   layoutSnapshot(); const st = STATE.settings;
-  if(opt === 'deepRows') st.deepRows = (v === '1');
+  if(opt === 'subStart') st.subStart = (v === 'row' ? 'row' : 'page');
+  else if(opt === 'deepRows') st.deepRows = (v === '1');
   else if(opt === 'deepLabels') st.deepLabels = v;
   else { st.formsPlace = Object.assign({ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, st.formsPlace || {}); st.formsPlace[opt] = v; }
   layoutSave(); openLayoutOptions(); render();
