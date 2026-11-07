@@ -757,6 +757,19 @@ a.btn, a.btn:hover{text-decoration:none;}
 .lay-sel{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;font-size:13px;}
 .lay-sel select{max-width:60%;}
 .nt-row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px;}
+.pocket.blankspot{border:2px dashed var(--line-strong);background:repeating-linear-gradient(135deg,transparent 0 6px,rgba(120,120,100,.10) 6px 12px);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:11px;letter-spacing:.12em;text-transform:uppercase;}
+.pocket.empty.arr-spotcell{background:repeating-linear-gradient(135deg,transparent 0 6px,rgba(120,120,100,.10) 6px 12px);}
+.pocket.empty.arr-spotcell .arr-plus{font-size:11px;letter-spacing:.12em;text-transform:uppercase;}
+.dc-lines{font-size:10px;line-height:1.25;margin-top:4px;color:var(--ink-soft);overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;}
+.pocket.label[data-k2="card-view"]{cursor:pointer;}
+.browse-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px;}
+.browse-card{display:flex;flex-direction:column;gap:2px;text-align:left;background:var(--paper-raised);border:2px solid var(--line);border-radius:var(--radius);padding:10px 12px;cursor:pointer;color:inherit;font:inherit;}
+.browse-card.on{border-color:var(--brass);box-shadow:0 0 0 2px var(--brass-soft);}
+.browse-card .bc-t{font-weight:600;font-size:13.5px;} .browse-card .bc-n{font-size:12px;color:var(--ink-soft);}
+.browse-row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap;}
+.browse-row .set{flex:1;min-width:120px;}
+.linklike{background:none;border:0;padding:0;font:inherit;font-weight:600;color:var(--brass);cursor:pointer;text-align:left;}
+.dc-kind{cursor:pointer;} .dc-kind.active{background:var(--brass-soft);}
 </style>
 </head>
 <body>
@@ -887,7 +900,7 @@ var ROW_CLUSTERS = {};   // Pokémon name -> {l: label, o: order}; set from Sett
    sectionFamilyRows { 'Category||Subcategory': 'off'|'lines'|'all' }   per-section override of the above
    pinFirst         names / evolution families that always sit first in their section (Arceus)
    sectionOrder     { 'Category||Subcategory': [ {k:'p',n:name} | {k:'blank'} | {k:'label',t:text,id} ] }   a section you arranged by hand */
-var LAYOUT_OPTS = { familyRows:'off', sectionFamilyRows:{}, pinFirst:[], sectionOrder:{}, formsPlace:{ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, deepRows:true, deepLabels:'deepest', subStart:'page' };
+var LAYOUT_OPTS = { familyRows:'off', sectionFamilyRows:{}, pinFirst:[], sectionOrder:{}, formsPlace:{ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, deepRows:true, deepLabels:'deepest', subStart:'page', labelPlace:{ group:'start', category:'start', sub:'start' } };
 function layoutSecKey(category, subcategory){ return category + '||' + subcategory; }
 function layoutPinned(s){ const P = LAYOUT_OPTS.pinFirst || []; return P.length > 0 && P.some(x => x === s.name || x === s.evoFamily || x === s.baseSpecies); }
 function layoutFamKey(s){ const PX = window.__PARADOX_LINKS || null, l = PX && PX[s.name]; return l ? l.family : (s.evoFamily || s.name); }
@@ -971,6 +984,10 @@ function computeBinderLayout(species){
   function skipToRow(){ while(pocket%3!==0){ slot++; pocket++; } }
   // One deliberately empty pocket (a space you left on purpose, or one a row break left behind).
   function skipOne(){ slot++; pocket++; if(pocket>9){ pocket=1; page++; } }
+  // Heading cards (part, category, sub-category) can sit at the start of their section, at its end, or be left out (tabs only).
+  const pend = { group:null, category:null, sub:null };
+  const flushEnd = l => { const r = pend[l]; if(r){ pend[l] = null; place(r); } };
+  const putHead = (l, row) => { const w = (LAYOUT_OPTS.labelPlace || {})[l] || 'start'; if(w === 'start') place(row); else if(w === 'end') pend[l] = row; };
   for(const group of GROUP_ORDER){
     const cats = CATEGORY_ORDER[group]||[];
     for(const category of cats){
@@ -981,16 +998,17 @@ function computeBinderLayout(species){
         const list = sortByFamilyThenEvo(byPath.get(path));
         if(!list.length) continue;
         if(category!==lastCat || group!==lastGroup || subcategory!==lastSub){
+          if(lastSub !== null){ flushEnd('sub'); if(category!==lastCat || group!==lastGroup) flushEnd('category'); if(group!==lastGroup) flushEnd('group'); }
           // A new category always starts on a fresh page. A new sub-category does too, unless you chose "next row" in Binder › Layout.
           if(LAYOUT_OPTS.subStart === 'row' && category===lastCat && group===lastGroup) skipToRow(); else forceNewPage();
         }
         if(group!==lastGroup){
-          place({type:'GROUP LABEL',labelLevel:'GROUP',display:group,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'GROUP::'+group,taxBreak:'NEW GROUP'});
+          putHead('group',{type:'GROUP LABEL',labelLevel:'GROUP',display:group,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'GROUP::'+group,taxBreak:'NEW GROUP'});
         }
         if(category!==lastCat || group!==lastGroup){
-          place({type:'CATEGORY LABEL',labelLevel:'CATEGORY',display:category,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CATEGORY::'+category,taxBreak: group!==lastGroup ? null : 'NEW CATEGORY'});
+          putHead('category',{type:'CATEGORY LABEL',labelLevel:'CATEGORY',display:category,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CATEGORY::'+category,taxBreak: group!==lastGroup ? null : 'NEW CATEGORY'});
         }
-        if(subcategory!==NO_SUB) place({type:'SUBCATEGORY LABEL',labelLevel:'SUBCATEGORY',display:subcategory,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'SUBCATEGORY::'+subcategory,taxBreak:null});
+        if(subcategory!==NO_SUB) putHead('sub',{type:'SUBCATEGORY LABEL',labelLevel:'SUBCATEGORY',display:subcategory,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'SUBCATEGORY::'+subcategory,taxBreak:null});
         const putPk = (s, extra) => place(Object.assign({type:'POKÉMON',labelLevel:null,display:s.name,dex:s.dex,group,category,subcategory,evoFamily:s.evoFamily,evoOrder:s.evoOrder}, extra || null));
         const secKey = layoutSecKey(category, subcategory);
         const manual = (LAYOUT_OPTS.sectionOrder || {})[secKey];
@@ -1001,14 +1019,15 @@ function computeBinderLayout(species){
           manual.forEach(it => {
             if(!it) return;
             if(it.k === 'p'){ const s = byName.get(it.n); if(s && !used.has(s.name)){ used.add(s.name); seq.push({k:'p', s}); } }
-            else if(it.k === 'label' || it.k === 'blank') seq.push(it);
+            else if(it.k === 'label' || it.k === 'blank' || it.k === 'spot') seq.push(it);
           });
           while(seq.length && seq[seq.length-1].k === 'blank') seq.pop();
           list.filter(s => !used.has(s.name)).forEach(s => seq.push({k:'p', s, fresh:true}));
           seq.forEach(it => {
             if(it.k === 'p') putPk(it.s, it.fresh ? {fresh:true} : null);
             else if(it.k === 'blank') skipOne();
-            else place({type:'CUSTOM LABEL',labelLevel:'NOTE',display:it.t || '',dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CUSTOM::'+it.id,taxBreak:null,custom:true});
+            else if(it.k === 'spot') place({type:'BLANK',labelLevel:'BLANK',display:'',dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'BLANK::'+(it.id || slot),taxBreak:null,custom:true,blank:true});
+            else place({type:'CUSTOM LABEL',labelLevel:'NOTE',display:it.t || '',dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CUSTOM::'+it.id,taxBreak:null,custom:true,details:it.d || null,cardKind:it.kind || 'note'});
           });
         } else if(list.length && list.every(s => typeof s.so === 'number')){
           // New taxonomy: timeline order, sub-sub categories (third level and deeper) on their own rows.
@@ -1071,6 +1090,7 @@ function computeBinderLayout(species){
       }
     }
   }
+  flushEnd('sub'); flushEnd('category'); flushEnd('group');
   // Safety net: a Pokémon whose group/category/subcategory isn't in the lists above would otherwise drop
   // out of the binder without a trace. Park any such Pokémon together at the very end instead.
   const placedNames = new Set(rows.filter(r => r.type==='POKÉMON').map(r => r.display));
@@ -1870,7 +1890,7 @@ function toolsStatus(){
   const diffs = d.inAppOnly.length + d.inCollectrOnly.length;
   const shortN = shortPagesList().length;
   const reorgN = reorgOpen() ? 1 : 0;
-  return { picks, pairs, diffs, shortN, reorgN, total: picks + pairs + diffs + shortN + reorgN };
+  return { picks, pairs, diffs, shortN, reorgN, total: picks + pairs + diffs + reorgN };
 }
 
 /* "regular" | "foil" | "other" from Collectr's Variance text. */
@@ -2645,7 +2665,7 @@ const ROUTES = [
   { id:'settings', label:'Settings', icon:'settings', group:'Manage' },
 ];
 // Tools is a hub: these pages all live under it in the menu.
-const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist','balance','forms','reorg','rowgroups','newtax'];
+const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist','forms','reorg','rowgroups','newtax','browse'];
 // The bottom tabbar only has room for a handful of tabs before they either
 // get crammed or require horizontal scrolling to discover. These four cover
 // the screens used day-to-day; everything else lives behind "More".
@@ -2745,6 +2765,7 @@ function render(){
     reorg: renderReorg,
     rowgroups: renderRowGroups,
     newtax: renderNewTax,
+    browse: renderBrowse,
     shiny: renderShiny,
     forms: renderForms,
     tools: renderTools,
@@ -3126,6 +3147,7 @@ function wireScreenEvents(routeId){
     $('#pdxType')?.addEventListener('change', e => { pokedexFilter.type = e.target.value; render(); });
     $('#pdxStatus')?.addEventListener('change', e => { pokedexFilter.status = e.target.value; render(); });
     $('#pdxSort')?.addEventListener('change', e => { pokedexFilter.sort = e.target.value; render(); });
+    $('#pdxRegion')?.addEventListener('change', e => { pokedexFilter.region = e.target.value; render(); });
     $('#pdxEvo')?.addEventListener('change', e => { pokedexFilter.evo = e.target.value; if(e.target.value !== 'stone') pokedexFilter.stone = ''; render(); });
     $('#pdxStone')?.addEventListener('change', e => { pokedexFilter.stone = e.target.value; render(); });
   }
@@ -3543,7 +3565,7 @@ function deleteCard(cardId){
 /* ============================================================
    Pokédex
    ============================================================ */
-let pokedexFilter = { q:'', group:'', status:'', sort:'dex', type:'', evo:'', stone:'' };
+let pokedexFilter = { q:'', group:'', status:'', sort:'dex', type:'', evo:'', stone:'', region:'' };
 let pokedexSelectMode = false;
 let pokedexSelection = [];
 
@@ -3782,6 +3804,7 @@ function renderPokedex(){
   if(pokedexFilter.group) list = list.filter(s => s.group === pokedexFilter.group);
   if(pokedexFilter.type) list = list.filter(s => (s.types||[]).includes(pokedexFilter.type));
   if(pokedexFilter.evo) list = list.filter(s => evoMatches(s, pokedexFilter.evo, pokedexFilter.stone));
+  if(pokedexFilter.region) list = list.filter(s => speciesRegion(s) === pokedexFilter.region);
   if(pokedexFilter.status === 'owned') list = list.filter(s => isOwned(s.name));
   if(pokedexFilter.status === 'missing') list = list.filter(s => !isOwned(s.name));
   if(pokedexFilter.status === 'pick') list = list.filter(s => !!STATE.picks[s.name]);
@@ -3790,7 +3813,7 @@ function renderPokedex(){
   if(pokedexFilter.sort === 'dex') list.sort((a,b)=> (a.dex??99999) - (b.dex??99999));
   else if(pokedexFilter.sort === 'name') list.sort((a,b)=>a.name.localeCompare(b.name));
 
-  const pdxSig = [pokedexFilter.q, pokedexFilter.group, pokedexFilter.type, pokedexFilter.status, pokedexFilter.sort, pokedexFilter.evo, pokedexFilter.stone].join('|');
+  const pdxSig = [pokedexFilter.q, pokedexFilter.group, pokedexFilter.type, pokedexFilter.status, pokedexFilter.sort, pokedexFilter.evo, pokedexFilter.stone, pokedexFilter.region].join('|');
   if(pdxSig !== pdxLastSig){ pdxLastSig = pdxSig; pdxLimit = 120; }
   const shownList = list.slice(0, pdxLimit);
   return `
@@ -3821,6 +3844,7 @@ function renderPokedex(){
         <option value="needpick" ${pokedexFilter.status==='needpick'?'selected':''}>Owned, needs pick</option>
       </select>
       ${evoFilterSelectsHTML('pdxEvo','pdxStone',pokedexFilter.evo,pokedexFilter.stone)}
+      <select id="pdxRegion" aria-label="Where it is from"><option value="">Where it’s from: any</option>${REGION_LIST.map(r => `<option value="${r}" ${pokedexFilter.region===r?'selected':''}>${r}</option>`).join('')}</select>
       <select id="pdxSort">
         <option value="dex" ${pokedexFilter.sort==='dex'?'selected':''}>Sort: Dex #</option>
         <option value="name" ${pokedexFilter.sort==='name'?'selected':''}>Sort: Name</option>
@@ -5858,6 +5882,7 @@ function renderBinder(args){
 function renderPocket(slot, editMode, selection, hl){
   if(!slot) return `<div class="pocket empty"></div>`;
   if(slot.type !== 'POKÉMON'){
+    if(slot.type === 'BLANK') return `<div class="pocket blankspot"><span>blank</span></div>`;
     const mergedInto = STATE.mergedLabels[slot.key];
     if(mergedInto){
       const cls = ['pocket','label','merged-away', editMode?'editable':''].join(' ').trim();
@@ -5870,10 +5895,13 @@ function renderPocket(slot, editMode, selection, hl){
     const displayText = slot.custom ? slot.display : (STATE.labelOverrides[slot.key] || slot.display);
     const selected = editMode && selection && selection.includes(slot.key);
     const cls = ['pocket','label', editMode?'editable':'', selected?'selected-merge':''].join(' ').trim();
-    const bodyAttr = editMode ? `data-action="edit-label-tap" data-slot="${esc(slot.key)}"` : '';
+    const hasCard = !editMode && slot.custom && slot.details && slot.details.length;
+    const bodyAttr = editMode ? `data-action="edit-label-tap" data-slot="${esc(slot.key)}"` : (hasCard ? `data-k2="card-view" data-key="${esc(slot.key)}" role="button" tabindex="0"` : '');
+    const lvTxt = slot.cardKind === 'art' ? 'ART' : slot.cardKind === 'fact' ? 'DID YOU KNOW' : (slot.labelLevel||'');
     return `<div class="${cls}" ${bodyAttr}>
-      <div class="lv">${esc(slot.labelLevel||'')}</div>
+      <div class="lv">${esc(lvTxt)}</div>
       <div class="nm">${esc(displayText)}</div>
+      ${slot.details && slot.details.length ? `<div class="dc-lines">${esc(slot.details.slice(0,4).join(' · '))}</div>` : ''}
       ${editMode ? `
       <div class="label-edit-controls">
         <button class="iconbtn sm" data-action="edit-label" data-slot="${esc(slot.key)}" title="Rename this label" aria-label="Rename this label">${ICONS.edit}</button>
@@ -6740,7 +6768,7 @@ function renderTools(){
     ${tool('rowgroups','binder','Row groups & layout','Sub-sub categories inside a section (Foxes inside Dogs, Mushrooms inside Fungi), plus the option to start each evolution line on a new row. Suggestions show the page cost before you apply them.',0, Object.keys(STATE.settings.rowClusters||{}).length ? `${fmtInt(rgMine().length)} row group${rgMine().length===1?'':'s'} in use · ${fmtInt(BINDER_MAX_PAGE)} pages` : `${fmtInt(BINDER_MAX_PAGE)} pages · ${LAYOUT_OPTS.familyRows==='off'?'lines packed together':'new row per line'}`)}
     ${tool('newtax','binder','New taxonomy','Rebuilds the binder in your timeline order: Deities, Mythicals, Ancients, Fossils, Modern day, Futures. Shows the page count before you switch, and you can go back.',0, taxNewActive() ? 'In use · ' + fmtInt(BINDER_MAX_PAGE) + ' pages' : 'Not switched yet')}
     ${taxNewActive() ? '' : tool('reorg','binder','Reorganize plan','A reviewed plan to file Pokémon by their final evolution, keep Ultra Beasts and fossils together, and merge thin sections so fewer pockets are wasted. Apply it, dismiss it, or undo it.',reorgOpen()?1:0, reorgOpen() ? `${fmtInt(reorgPending().length)} Pokémon to move` : (STATE.settings.reorgApplied ? 'Applied' : (STATE.settings.reorgDismissed===REORG_PLAN.id ? 'Dismissed' : 'Nothing to apply')))}
-    ${tool('balance','binder','Page balance','Binder pages that are one Pokémon or less than half full, with a reviewed set of moves to fix them, and the ancient / modern / future ordering for Paradox Pokémon.',shortPagesList().length, shortPagesList().length ? `${fmtInt(shortPagesList().length)} short page${shortPagesList().length===1?'':'s'}` : 'No short pages')}
+    ${tool('browse','pokedex','Browse by region or evolution','See every Pokémon grouped by the region it is from, or by how it evolves (level, each stone, trade, friendship…), with its binder page and whether you own it.',0,'Where they\u2019re from · How they evolve')}
     ${tool('forms','check','Forms check','Pokémon with no printed card yet, and forms worth double-checking against the real cards.',0,'Open')}
     ${tool('duplicates','dupes','Duplicates & finishes','Regular + foil of the same card, holofoil + reverse holofoil, exact copies, and card-number slips — all checked in one place.',st.pairs, st.pairs ? `${fmtInt(fi0.pairs.length)} regular + foil · ${fmtInt(fi0.holoRev.length)} holo + reverse${fi0.clashes.length ? ` · ${fmtInt(fi0.clashes.length)} data slip` : ''}` : `None to review · ${fmtInt(fi0.exact.length)} exact-copy entries`)}
   `;
@@ -8796,7 +8824,7 @@ function syncLayoutOpts(){
   const st = STATE.settings || (STATE.settings = {});
   if(st.pinFirst === undefined) st.pinFirst = ['Arceus'];   // Arceus always leads its section (you can remove this in Layout)
   try{ taxNewRefresh(); }catch(e){}
-  LAYOUT_OPTS = { familyRows: st.familyRows || 'off', sectionFamilyRows: st.sectionFamilyRows || {}, pinFirst: Array.isArray(st.pinFirst) ? st.pinFirst : [], sectionOrder: st.sectionOrder || {}, formsPlace: Object.assign({ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, st.formsPlace || {}), deepRows: st.deepRows !== false, deepLabels: st.deepLabels || 'deepest', subStart: st.subStart === 'row' ? 'row' : 'page' };
+  LAYOUT_OPTS = { familyRows: st.familyRows || 'off', sectionFamilyRows: st.sectionFamilyRows || {}, pinFirst: Array.isArray(st.pinFirst) ? st.pinFirst : [], sectionOrder: st.sectionOrder || {}, formsPlace: Object.assign({ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, st.formsPlace || {}), deepRows: st.deepRows !== false, deepLabels: st.deepLabels || 'deepest', subStart: st.subStart === 'row' ? 'row' : 'page', labelPlace: Object.assign({ group:'start', category:'start', sub:'start' }, st.labelPlace || {}) };
 }
 function layoutPreview(over){
   const keep = LAYOUT_OPTS; LAYOUT_OPTS = Object.assign({}, LAYOUT_OPTS, over || {});
@@ -8814,14 +8842,14 @@ function layoutSetMode(v){
 }
 function layoutSnapshot(){
   const st = STATE.settings;
-  arrUndo.push(JSON.stringify({ so: st.sectionOrder || {}, sf: st.sectionFamilyRows || {}, fr: st.familyRows || 'off', pf: st.pinFirst, rc: st.rowClusters || {}, fp: st.formsPlace, dr: st.deepRows, dl: st.deepLabels, ss: st.subStart }));
+  arrUndo.push(JSON.stringify({ so: st.sectionOrder || {}, sf: st.sectionFamilyRows || {}, fr: st.familyRows || 'off', pf: st.pinFirst, rc: st.rowClusters || {}, fp: st.formsPlace, dr: st.deepRows, dl: st.deepLabels, ss: st.subStart, lp: st.labelPlace }));
   if(arrUndo.length > 40) arrUndo.shift();
 }
 function layoutSave(){ persist('settings'); rebuildBinder(); }
 function layoutUndo(){
   const j = arrUndo.pop(); if(!j){ toast('Nothing to undo.'); return; }
   const o = JSON.parse(j), st = STATE.settings;
-  st.sectionOrder = o.so; st.sectionFamilyRows = o.sf; st.familyRows = o.fr; st.pinFirst = o.pf; st.rowClusters = o.rc; st.formsPlace = o.fp; st.deepRows = o.dr; st.deepLabels = o.dl; st.subStart = o.ss;
+  st.sectionOrder = o.so; st.sectionFamilyRows = o.sf; st.familyRows = o.fr; st.pinFirst = o.pf; st.rowClusters = o.rc; st.formsPlace = o.fp; st.deepRows = o.dr; st.deepLabels = o.dl; st.subStart = o.ss; st.labelPlace = o.lp;
   arrSel = null; layoutSave(); toast('Undone.'); render();
 }
 var arrUndo = [];
@@ -8834,7 +8862,7 @@ function arrSections(){
     const key = layoutSecKey(r.category, r.subcategory);
     let s = map.get(key); if(!s){ s = { key, category:r.category, subcategory:r.subcategory, group:r.group, pages:new Set(), body:[] }; map.set(key, s); }
     s.pages.add(r.page);
-    if(r.type === 'POKÉMON' || r.type === 'ROW LABEL' || r.type === 'CUSTOM LABEL') s.body.push(r);
+    if(r.type === 'POKÉMON' || r.type === 'ROW LABEL' || r.type === 'CUSTOM LABEL' || r.type === 'BLANK') s.body.push(r);
   });
   map.forEach(s => { s.first = s.body.length ? s.body[0].slot : null; });
   return map;
@@ -8849,6 +8877,7 @@ function arrCell(page, pocket){
   const row = rows.find(r => r.pocket === pocket);
   if(row){
     if(row.type === 'POKÉMON') return { kind:'p', secKey, pos, name:row.display, row };
+    if(row.type === 'BLANK') return { kind:'empty', spot:true, secKey, pos, row };
     if(row.type === 'ROW LABEL' || row.type === 'CUSTOM LABEL') return { kind:'label', secKey, pos, text:row.display, row, id: row.type === 'CUSTOM LABEL' ? row.key.slice(8) : null };
     return { kind:'auto', secKey, pos:null, row };
   }
@@ -8862,7 +8891,8 @@ function arrItems(secKey){
   sec.body.forEach(r => {
     for(let k = prev + 1; k < r.slot; k++) items.push({ k:'blank' });
     if(r.type === 'POKÉMON') items.push({ k:'p', n:r.display });
-    else items.push({ k:'label', t:r.display, id: r.type === 'CUSTOM LABEL' ? r.key.slice(8) : uid() });
+    else if(r.type === 'BLANK') items.push({ k:'spot', id:String(r.key).slice(7) });
+    else items.push({ k:'label', t:r.display, id: r.type === 'CUSTOM LABEL' ? r.key.slice(8) : uid(), d: r.details || undefined, kind: r.cardKind && r.cardKind !== 'note' ? r.cardKind : undefined });
     prev = r.slot;
   });
   return items;
@@ -8886,12 +8916,12 @@ function arrApply(secKey, from, to, how){
 function arrPlaceNamed(secKey, name, to){
   const items = arrItems(secKey), from = items.findIndex(x => x.k === 'p' && x.n === name); if(from < 0) return;
   arrPad(items, to);
-  arrApply(secKey, from, to, items[to].k === 'blank' ? 'move' : 'swap');
+  arrApply(secKey, from, to, arrIsEmpty(items[to]) ? 'move' : 'swap');
 }
 function arrAddLabel(secKey, pos, text, slide){
   const items = arrItems(secKey); arrPad(items, pos); layoutSnapshot();
   const lab = { k:'label', t:text, id:uid() };
-  if(items[pos].k === 'blank' && !slide) items[pos] = lab; else items.splice(pos, 0, lab);
+  if(arrIsEmpty(items[pos]) && !slide) items[pos] = lab; else items.splice(pos, 0, lab);
   arrCommit(secKey, items);
 }
 function arrEditLabel(secKey, pos, text){ const items = arrItems(secKey); if(!items[pos] || items[pos].k !== 'label') return; layoutSnapshot(); items[pos] = { k:'label', t:text, id: items[pos].id || uid() }; arrCommit(secKey, items); }
@@ -8919,10 +8949,10 @@ function arrPocketHTML(page, pocket){
     const r = c.row, txt = STATE.labelOverrides[r.key] || r.display;
     return `<div class="pocket label arr-auto"><div class="lv">${esc(r.labelLevel||'')}</div><div class="nm">${esc(txt)}</div></div>`;
   }
-  if(c.kind === 'empty') return `<div class="pocket empty arr arr-empty ${isSel?'arr-sel':''}" data-ap="${ap}" role="button" tabindex="0" aria-label="Empty pocket ${pocket}. Tap to add a label or place a Pokémon"><span class="arr-plus" aria-hidden="true">＋</span></div>`;
+  if(c.kind === 'empty') return `<div class="pocket empty arr arr-empty ${c.spot?'arr-spotcell':''} ${isSel?'arr-sel':''}" data-ap="${ap}" role="button" tabindex="0" aria-label="${c.spot?'Blank spot':'Empty pocket'} ${pocket}. Tap to add a card or place a Pokémon"><span class="arr-plus" aria-hidden="true">${c.spot?'blank':'＋'}</span></div>`;
   if(c.kind === 'label'){
     const lv = c.row.type === 'ROW LABEL' ? 'THE GROUP' : 'NOTE';
-    return `<div class="pocket label arr ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0"><div class="lv">${lv}</div><div class="nm">${esc(c.text)}</div></div>`;
+    return `<div class="pocket label arr ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0"><div class="lv">${c.row.cardKind === 'art' ? 'ART' : c.row.cardKind === 'fact' ? 'DID YOU KNOW' : lv}</div><div class="nm">${esc(c.text)}</div>${c.row.details ? `<div class="dc-lines">${esc(c.row.details.slice(0,3).join(' · '))}</div>` : ''}</div>`;
   }
   const sp = speciesByName.get(c.name), owned = speciesOwnedQty(c.name) > 0 || !!STATE.manualOwned[c.name];
   return `<div class="pocket arr ${owned?'owned':'missing'} ${c.row.fresh?'arr-fresh':''} ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0">
@@ -8940,7 +8970,7 @@ function arrToolbarHTML(){
     return `<div class="card arr-selbar"><div><strong>${isL ? 'Label' : ''} ${esc(isL ? arrSel.text : arrSel.name)}</strong> is picked up. Tap the pocket it should go to.</div>
       <div class="btns">
         <button class="btn sm" data-k2="arr-moveto">Move to page / pocket…</button>
-        ${isL ? `<button class="btn sm" data-k2="arr-label-edit">Rename</button><button class="btn sm" data-k2="arr-label-del" data-close="0">Remove (leave empty)</button><button class="btn sm" data-k2="arr-label-del" data-close="1">Remove and close the gap</button>`
+        ${isL ? `<button class="btn sm" data-k2="arr-card-edit">Edit card…</button><button class="btn sm" data-k2="arr-label-edit">Rename</button><button class="btn sm" data-k2="arr-label-del" data-close="0">Remove (leave empty)</button><button class="btn sm" data-k2="arr-label-del" data-close="1">Remove and close the gap</button>`
               : `<button class="btn sm" data-k2="arr-recat">Move to another section…</button>`}
         <button class="btn sm ghost" data-k2="arr-cancel">Put it down</button>
       </div></div>`;
@@ -8953,6 +8983,7 @@ function arrToolbarHTML(){
       <div class="btns">
         <label class="arr-fam">New row for each line: <select data-k2sel="sec-fam" data-sec="${esc(key)}"><option value="" ${secFam===''?'selected':''}>Same as everywhere</option><option value="off" ${secFam==='off'?'selected':''}>No</option><option value="lines" ${secFam==='lines'?'selected':''}>Evolution lines</option><option value="all" ${secFam==='all'?'selected':''}>Every family</option></select></label>
         ${manual ? `<button class="btn sm" data-k2="arr-reset" data-sec="${esc(key)}">Back to automatic order</button>` : ''}
+        <button class="btn sm" data-k2="print-cards">Print descriptor cards</button>
       </div></div>` : ''}
     ${sel}`;
 }
@@ -8982,10 +9013,12 @@ function openArrTargetSheet(c){
 }
 function openArrEmptySheet(c){
   arrPending = { secKey:c.secKey, to:c.pos };
-  const items = arrItems(c.secKey), isGap = c.pos < items.length;
-  openModal('Empty pocket', `
-    <button class="btn primary arr-btn" data-k2="arr-label-new">Add a label card here…</button>
+  const items = arrItems(c.secKey), isGap = c.pos < items.length, isSpot = !!c.spot;
+  openModal(isSpot ? 'Blank spot' : 'Empty pocket', `
+    <button class="btn primary arr-btn" data-k2="arr-card-new">Add a descriptor card here…</button>
+    <button class="btn arr-btn" data-k2="arr-label-new">Add a simple label card…</button>
     <button class="btn arr-btn" data-k2="arr-put-list">Put a Pokémon from this section here…</button>
+    ${isSpot ? `<button class="btn arr-btn" data-k2="arr-unspot">Un-mark this blank spot</button>` : `<button class="btn arr-btn" data-k2="arr-spot">Mark as a blank spot (empty on purpose)</button>`}
     ${isGap ? `<button class="btn arr-btn" data-k2="arr-gap">Close this gap (everything after it moves up)</button>` : ''}
     <button class="btn arr-btn" data-k2="arr-addblank">Add another empty pocket here (push everything along)</button>`,
     `<button class="btn ghost" data-action="close-modal">Cancel</button>`);
@@ -9242,6 +9275,16 @@ function handleK2(el){
   const d = el.dataset;
   switch(d.k2){
     case 'lay-open': openLayoutOptions(); return true;
+    case 'browse-tab': browseTab = d.v; browseSel = ''; render(); return true;
+    case 'browse-pick': browseSel = (browseSel === d.v ? '' : d.v); render(); return true;
+    case 'card-view': cardViewModal(d.key); return true;
+    case 'print-one': { const r = BINDER.find(x => x.key === d.key); if(r) printCardsSheet([{ level: r.cardKind === 'art' ? 'Art' : 'Did you know', title:r.display, lines:r.details || [], cls: r.cardKind === 'art' ? 'art' : '' }], r.display); return true; }
+    case 'print-cards': printCardsSheet(descriptorCardList(), 'Descriptor cards'); return true;
+    case 'print-heads': printCardsSheet(headingCardList(), 'Heading cards'); return true;
+    case 'arr-card-new': { const p = arrPending; closeModal(); if(p) openDescriptorCard(p.secKey, p.to, null); return true; }
+    case 'arr-card-edit': { if(arrSel){ const it = arrItems(arrSel.secKey)[arrSel.pos]; if(it && it.k === 'label') openDescriptorCard(arrSel.secKey, arrSel.pos, it); } return true; }
+    case 'arr-spot': { const p = arrPending; closeModal(); if(p) arrSetSpot(p.secKey, p.to, true); return true; }
+    case 'arr-unspot': { const p = arrPending; closeModal(); if(p) arrSetSpot(p.secKey, p.to, false); return true; }
     case 'newtax-apply': confirmAction('Switch the whole binder to the new taxonomy? Your old categories are saved and you can go back from the same page.', taxNewApply); return true;
     case 'newtax-revert': confirmAction('Go back to your old categories? Anything you arranged in the new layout is dropped.', taxNewRevert); return true;
     case 'fam-mode': layoutSetMode(d.v); return true;
@@ -9431,6 +9474,10 @@ function openLayoutOptions(){
     <div class="section-title" style="margin-top:0;">Where a new sub-category starts</div>
     <div class="lay-sel"><label>Sub-categories</label>${sel('subStart', LAYOUT_OPTS.subStart === 'row' ? 'row' : 'page', [['page','New page (' + fmtInt(layoutPreview({subStart:'page'}).pages) + ' pages)'],['row','Next row (' + fmtInt(layoutPreview({subStart:'row'}).pages) + ' pages)']])}</div>
     <p class="tx-hint">Categories always start on a new page, so your category tabs still land at the top of a page. With "next row", a sub-category label can land partway down a page.</p>
+    <div class="section-title">Where the heading cards go</div>
+    ${(() => { const LP = LAYOUT_OPTS.labelPlace || {}; const opts = lvl => ['start','end','off'].map(w => [w, { start:'First pocket of its section', end:'Last pocket of its section', off:'Not in the binder (tab only)' }[w] + ' · ' + fmtInt(layoutPreview({ labelPlace:Object.assign({}, LP, { [lvl]:w }) }).pages) + ' pages']);
+      return [['group','Part card'],['category','Category card'],['sub','Sub-category card']].map(r => `<div class="lay-sel"><label>${r[1]}</label>${sel('lp-' + r[0], LP[r[0]] || 'start', opts(r[0]))}</div>`).join(''); })()}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 8px;"><button class="btn" data-k2="print-heads">Print heading cards</button><button class="btn" data-k2="print-cards">Print descriptor cards</button></div>
     ${newOn ? `
     <div class="section-title">Sub-sub categories (third level and deeper)</div>
     <div class="lay-sel"><label>Where each one starts</label>${sel('deepRows', LAYOUT_OPTS.deepRows !== false ? '1' : '0', [['1','On a new row'],['0','Keep flowing, no new row']])}</div>
@@ -9455,10 +9502,158 @@ function openLayoutOptions(){
 function layoutSetOpt(opt, v){
   layoutSnapshot(); const st = STATE.settings;
   if(opt === 'subStart') st.subStart = (v === 'row' ? 'row' : 'page');
+  else if(opt.indexOf('lp-') === 0){ st.labelPlace = Object.assign({ group:'start', category:'start', sub:'start' }, st.labelPlace || {}); st.labelPlace[opt.slice(3)] = v; }
   else if(opt === 'deepRows') st.deepRows = (v === '1');
   else if(opt === 'deepLabels') st.deepLabels = v;
   else { st.formsPlace = Object.assign({ mega:'inline', gmax:'inline', primal:'inline', regional:'row' }, st.formsPlace || {}); st.formsPlace[opt] = v; }
   layoutSave(); openLayoutOptions(); render();
+}
+
+
+/* ============================================================
+   Heading-card placement, blank spots, descriptor cards, browse by region / evolution
+   ============================================================ */
+
+/* ---------------- Where a Pokémon is from (the region of the game it first appeared in) ---------------- */
+const REGION_RANGES = [['Kanto',1,151],['Johto',152,251],['Hoenn',252,386],['Sinnoh',387,493],['Unova',494,649],['Kalos',650,721],['Alola',722,809],['Galar',810,898],['Hisui',899,905],['Paldea',906,1025]];
+const REGION_LIST = REGION_RANGES.map(r => r[0]).concat(['Unknown']);
+function speciesRegion(s){
+  if(!s) return 'Unknown';
+  const m = /^(Alolan|Galarian|Hisuian|Paldean) /.exec(s.name);
+  if(m) return { Alolan:'Alola', Galarian:'Galar', Hisuian:'Hisui', Paldean:'Paldea' }[m[1]];
+  const d = typeof s.dex === 'number' ? s.dex : parseInt(s.dex, 10);
+  if(!d) return 'Unknown';
+  const r = REGION_RANGES.find(x => d >= x[1] && d <= x[2]);
+  return r ? r[0] : 'Unknown';
+}
+
+/* ---------------- Browse by region / by how it evolves ---------------- */
+var browseTab = 'region', browseSel = '';
+function browseGroups(){
+  if(browseTab === 'region'){
+    return REGION_LIST.map(r => ({ id:r, title:r, members: SPECIES.filter(s => speciesRegion(s) === r) })).filter(g => g.members.length);
+  }
+  const out = [];
+  EVO_FILTERS.filter(f => f[0] && f[0] !== 'stone' && f[0] !== 'tradeitem').forEach(f => out.push({ id:f[0], title:f[1].replace(/^How it evolves: /, ''), members: SPECIES.filter(s => evoMatches(s, f[0], '')) }));
+  EVO_STONES.forEach(st => out.push({ id:'stone:' + st, title:st, sub:true, members: SPECIES.filter(s => evoMatches(s, 'stone', st)) }));
+  out.splice(out.findIndex(g => g.id === 'trade') + 1, 0, { id:'tradeitem', title:'Trade while holding an item', sub:true, members: SPECIES.filter(s => evoMatches(s, 'tradeitem', '')) });
+  return out.filter(g => g.members.length);
+}
+function renderBrowse(){
+  const groups = browseGroups(), sel = groups.find(g => g.id === browseSel);
+  const tab = (id, t) => `<button class="chip ${browseTab===id?'active':''}" data-k2="browse-tab" data-v="${id}">${t}</button>`;
+  const list = sel ? sel.members.slice().sort((a, b) => (typeof a.dex === 'number' ? a.dex : 99999) - (typeof b.dex === 'number' ? b.dex : 99999)) : [];
+  return `
+    <div class="pagehead"><div><h1>Browse</h1><div class="sub">${browseTab === 'region' ? 'Where each Pokémon is from' : 'How each Pokémon evolves'}</div></div><button class="btn" data-nav="tools">← Tools</button></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${tab('region','Where they’re from')}${tab('evolve','How they evolve')}</div>
+    <p class="tx-hint" style="margin-top:0;">${browseTab === 'region' ? 'Region means the game region where the Pokémon first appeared. Regional forms (Alolan, Galarian, Hisuian, Paldean) count for their own region.' : 'Tap a group to see its Pokémon and the binder page each one is on.'}</p>
+    <div class="browse-grid">${groups.map(g => { const own = g.members.filter(s => isOwned(s.name)).length;
+      return `<button class="browse-card ${browseSel===g.id?'on':''}" data-k2="browse-pick" data-v="${esc(g.id)}"><span class="bc-t">${esc(g.title)}</span><span class="bc-n">${fmtInt(own)} of ${fmtInt(g.members.length)} owned</span></button>`; }).join('')}</div>
+    ${sel ? `<div class="section-title">${esc(sel.title)} · ${fmtInt(list.length)}</div>
+      <div class="card" style="padding:4px 12px;">${list.map(s => { const slot = binderSlotBySpecies.get(s.name), info = browseTab === 'evolve' ? evoInfo(s) : null;
+        return `<div class="browse-row"><button class="linklike" data-nav-species="${esc(s.name)}">${esc(s.name)}</button><span class="set">${info ? esc(info.text) : esc(speciesRegion(s))}</span><span class="${isOwned(s.name) ? 'badge owned' : 'badge'}">${isOwned(s.name) ? 'owned' : 'need'}</span>${slot ? `<button class="btn sm" data-nav-binder="${slot.page}">p. ${slot.page}</button>` : ''}</div>`; }).join('')}</div>` : ''}`;
+}
+
+/* ---------------- Blank spots and descriptor cards (inside Arrange) ---------------- */
+function arrIsEmpty(it){ return !it || it.k === 'blank' || it.k === 'spot'; }
+function arrSetSpot(secKey, pos, on){
+  const items = arrItems(secKey); arrPad(items, pos); layoutSnapshot();
+  items[pos] = on ? { k:'spot', id:uid() } : { k:'blank' };
+  arrCommit(secKey, items);
+}
+function arrSaveCard(secKey, pos, card, replaceId){
+  const items = arrItems(secKey); layoutSnapshot();
+  if(replaceId){ const i = items.findIndex(x => x.k === 'label' && x.id === replaceId); if(i >= 0){ items[i] = Object.assign({ k:'label', id:replaceId }, card); arrCommit(secKey, items); return; } }
+  arrPad(items, pos);
+  const c = Object.assign({ k:'label', id:uid() }, card);
+  if(arrIsEmpty(items[pos])) items[pos] = c; else items.splice(pos, 0, c);
+  arrCommit(secKey, items);
+}
+const DC_FIELDS = [['height','Height'],['weight','Weight'],['genus','Category (“Seed Pokémon”)'],['region','Where it’s from'],['types','Types'],['habitat','Habitat'],['color','Colour'],['evolves','How it evolves'],['abilities','Abilities'],['entry','A Pokédex entry'],['inspiration','Inspiration note']];
+async function dcFacts(sp, flags){
+  let d = null; try{ d = await loadPokeInfo(sp); }catch(e){ d = null; }
+  const L = [], m = d && d.height != null ? d.height / 10 : null, kg = d && d.weight != null ? d.weight / 10 : null;
+  const ftin = m != null ? (() => { const t = Math.round(m * 39.3701); return Math.floor(t/12) + '′' + String(t%12).padStart(2,'0') + '″'; })() : '';
+  if(flags.genus && d && d.genus) L.push(d.genus);
+  if(flags.region) L.push('From ' + speciesRegion(sp) + (d && d.generation ? ' · ' + infoTitleCase(d.generation) : ''));
+  if(flags.types && sp.types && sp.types.length) L.push(sp.types.join(' / '));
+  if(flags.height && m != null) L.push('Height ' + m.toFixed(1) + ' m (' + ftin + ')');
+  if(flags.weight && kg != null) L.push('Weight ' + kg.toFixed(1) + ' kg (' + (kg * 2.20462).toFixed(1) + ' lb)');
+  if(flags.habitat && d && d.habitat) L.push('Habitat: ' + infoTitleCase(d.habitat));
+  if(flags.color && d && d.color) L.push('Colour: ' + infoTitleCase(d.color));
+  if(flags.abilities && d && d.abilities && d.abilities.length) L.push('Abilities: ' + d.abilities.map(a => infoTitleCase(a.name)).join(', '));
+  if(flags.evolves){ const i = evoInfo(sp); const pr = sp.evoOrder > 1 ? evoPriorOf(sp) : null; if(i && !i.tags.includes('cosmetic')) L.push((pr ? 'Evolves from ' + pr + ': ' : '') + i.text); else if(!i) L.push('Doesn’t evolve from anything'); }
+  if(flags.entry && d && d.flavors && d.flavors.length) L.push(d.flavors[0].text);
+  if(flags.inspiration && NEWTAX){ const t = NEWTAX.by.get(sp.name); if(t && t.note) L.push(t.note); }
+  if(!d) L.push('(Online facts need a connection: height, weight, category and habitat were left out.)');
+  return L;
+}
+function openDescriptorCard(secKey, pos, existing){
+  const ex = existing || null, kind = ex ? (ex.kind || 'note') : 'fact';
+  const kinds = [['fact','Facts about a Pokémon'],['group','About the group'],['art','Art piece or photo'],['note','Free text']];
+  openModal(ex ? 'Edit card' : 'New descriptor card', `
+    <div class="field"><label>What is it?</label><div style="display:flex;gap:6px;flex-wrap:wrap;">${kinds.map(k => `<label class="chip dc-kind ${kind===k[0]?'active':''}"><input type="radio" name="dcKind" value="${k[0]}" ${kind===k[0]?'checked':''} style="display:none;">${k[1]}</label>`).join('')}</div></div>
+    <div class="field"><label>Title on the card</label><input type="text" id="dcTitle" maxlength="40" value="${esc(ex ? ex.t : '')}" placeholder="Pikachu, Mouse Pokémon, Art by…"></div>
+    <div id="dcFactBox" style="${kind==='fact'?'':'display:none;'}">
+      <div class="field"><label>Which Pokémon?</label>${speciesPickerHTML({ id:'dcSp', placeholder:'Type to search…' })}</div>
+      <div class="field"><label>Include</label><div style="display:flex;gap:6px 12px;flex-wrap:wrap;font-size:13px;">${DC_FIELDS.map(f => `<label><input type="checkbox" class="dcFlag" value="${f[0]}" ${['height','weight','genus','region'].includes(f[0])?'checked':''}> ${f[1]}</label>`).join('')}</div></div>
+      <button class="btn" id="dcFill">Fill in the facts</button>
+    </div>
+    <div id="dcGroupBox" style="${kind==='group'?'':'display:none;'}"><button class="btn" id="dcGroupFill">Fill from this section</button></div>
+    <div class="field" style="margin-top:10px;"><label>Text on the card (one fact per line; you can edit it)</label><textarea id="dcText" rows="6" style="width:100%;">${esc(ex && ex.d ? ex.d.join('\n') : '')}</textarea></div>`,
+    `<button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn accent" id="dcSave">Save card</button>`);
+  wireSpeciesPickers($('#modalOverlay'));
+  const setKind = k => { $('#dcFactBox').style.display = k === 'fact' ? '' : 'none'; $('#dcGroupBox').style.display = k === 'group' ? '' : 'none'; $$('.dc-kind').forEach(l => l.classList.toggle('active', l.querySelector('input').value === k)); };
+  $$('input[name="dcKind"]').forEach(r => r.addEventListener('change', () => setKind(r.value)));
+  $('#dcFill').addEventListener('click', async () => {
+    const sp = speciesByName.get(($('#dcSp') || {}).value || ''); if(!sp){ toast('Pick a Pokémon first.'); return; }
+    const flags = {}; $$('.dcFlag').forEach(c => { flags[c.value] = c.checked; });
+    $('#dcFill').textContent = 'Looking it up…'; $('#dcFill').disabled = true;
+    const L = await dcFacts(sp, flags); $('#dcFill').textContent = 'Fill in the facts'; $('#dcFill').disabled = false;
+    if(!$('#dcTitle').value.trim()) $('#dcTitle').value = sp.name;
+    $('#dcText').value = L.join('\n');
+  });
+  $('#dcGroupFill').addEventListener('click', () => {
+    const names = arrItems(secKey).filter(x => x.k === 'p').map(x => x.n), regions = {}; names.forEach(n => { const r = speciesRegion(speciesByName.get(n)); regions[r] = (regions[r] || 0) + 1; });
+    const own = names.filter(n => isOwned(n)).length;
+    if(!$('#dcTitle').value.trim()) $('#dcTitle').value = arrSecTitle(secKey).split(' › ').pop();
+    $('#dcText').value = [fmtInt(names.length) + ' Pokémon in this section', 'From ' + Object.keys(regions).map(r => r + ' (' + regions[r] + ')').join(', ')].join('\n');
+  });
+  $('#dcSave').addEventListener('click', () => {
+    const t = ($('#dcTitle').value || '').trim(); if(!t){ toast('Give the card a title.'); return; }
+    const k = (document.querySelector('input[name="dcKind"]:checked') || {}).value || 'note';
+    const d = ($('#dcText').value || '').split('\n').map(x => x.trim()).filter(Boolean);
+    closeModal(); arrSaveCard(secKey, pos, { t, d, kind:k }, ex ? ex.id : null);
+  });
+}
+function cardViewModal(key){
+  const r = BINDER.find(x => x.key === key); if(!r) return;
+  openModal(r.display, `<div class="card-view">${(r.details || []).map(l => `<p style="margin:0 0 6px;">${esc(l)}</p>`).join('') || '<p class="tx-hint">No extra text on this card.</p>'}</div>`,
+    `<button class="btn ghost" data-action="close-modal">Close</button><button class="btn" data-k2="print-one" data-key="${esc(key)}">Print this card</button>`);
+}
+/* printable sheets: 63 × 88 mm cards, nine to a page, with cut lines */
+function printCardsSheet(cards, title){
+  if(!cards.length){ toast('There are no cards to print yet.'); return; }
+  const h = x => String(x).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  const body = cards.map(c => `<div class="c ${c.cls || ''}"><div class="lv">${h(c.level || '')}</div><div class="t">${h(c.title)}</div>${(c.lines || []).map(l => `<p>${h(l)}</p>`).join('')}</div>`).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${h(title)}</title><style>
+    @page{size:letter;margin:8mm;} body{margin:0;font-family:Georgia,serif;color:#1c2b24;}
+    .sheet{display:grid;grid-template-columns:repeat(3,63mm);grid-auto-rows:88mm;gap:0;justify-content:center;}
+    .c{box-sizing:border-box;border:.3mm dashed #9aa79f;padding:6mm 5mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;break-inside:avoid;}
+    .lv{font:600 7pt sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#a07d2e;margin-bottom:3mm;} .t{font-size:15pt;font-weight:700;margin-bottom:3mm;line-height:1.15;} p{margin:0 0 1.6mm;font:9pt/1.3 sans-serif;}
+    .c.art{border-style:solid;} @media print{.c{border-color:#bbb;}}</style></head><body><div class="sheet">${body}</div></body></html>`;
+  const w = window.open('', '_blank'); if(!w){ toast('Allow pop-ups to print the cards.'); return; }
+  w.document.open(); w.document.write(html); w.document.close(); setTimeout(() => { try{ w.focus(); w.print(); }catch(e){} }, 500);
+}
+function descriptorCardList(){
+  const out = [], so = STATE.settings.sectionOrder || {};
+  Object.keys(so).forEach(k => (so[k] || []).forEach(it => { if(it && it.k === 'label' && (it.d && it.d.length || it.kind === 'art')) out.push({ level: it.kind === 'art' ? 'Art' : (it.kind === 'group' ? 'The group' : 'Did you know'), title: it.t, lines: it.d || [], cls: it.kind === 'art' ? 'art' : '' }); }));
+  return out;
+}
+function headingCardList(){
+  const seen = new Set(), out = [];
+  BINDER.forEach(r => { if(['GROUP LABEL','CATEGORY LABEL','SUBCATEGORY LABEL','ROW LABEL'].includes(r.type)){ const k = r.type + '|' + r.display; if(seen.has(k)) return; seen.add(k); out.push({ level: { 'GROUP LABEL':'Part', 'CATEGORY LABEL':'Category', 'SUBCATEGORY LABEL':'Sub-category', 'ROW LABEL':'Group' }[r.type], title: STATE.labelOverrides[r.key] || r.display, lines:[] }); } });
+  return out;
 }
 
 try{ rebuildBinder(); }catch(e){}
