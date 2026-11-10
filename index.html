@@ -10115,6 +10115,17 @@ function mgData(){
 function mgDone(){ const st = STATE.settings || (STATE.settings = {}); return st.moveDone || (st.moveDone = {}); }
 function mgPos(p){ const r = ['top','middle','bottom'][Math.floor((p - 1) / 3)], c = ['left','middle','right'][(p - 1) % 3]; return (r === 'middle' && c === 'middle') ? 'center' : r + ' ' + c; }
 function mgAt(r){ return r ? `page ${r.page}, pocket ${r.pocket} (${mgPos(r.pocket)})` : ''; }
+function mgFrom(o){
+  if(!o) return '';
+  const real = v => v && v !== '—' && v !== 'Needs a section';
+  let parts;
+  if(o.type === 'GROUP LABEL') parts = [o.group];
+  else if(o.type === 'CATEGORY LABEL') parts = [o.category];
+  else parts = [o.category, o.subcategory];
+  parts = parts.filter(real);
+  if(!parts.length && real(o.group)) parts = [o.group];
+  return parts.length ? parts.join(' › ') : mgAt(o);
+}
 function mgSame(a, b){ return !!(a && b && a.page === b.page && a.pocket === b.pocket); }
 function mgIsCard(r){ return r && r.type === 'POKÉMON'; }
 function mgCardLine(name){
@@ -10157,7 +10168,7 @@ function mgNewRow(r){
     let was = '';
     if(!owned) was = '';
     else if(o && mgSame(o, r)) was = '<div class="mg-was stay">✓ Already in the right spot</div>';
-    else if(o) was = `<div class="mg-was move">Take it from: ${esc(mgAt(o))}</div>`;
+    else if(o) was = `<div class="mg-was move">Take it from: ${esc(mgFrom(o))}</div>`;
     else was = '<div class="mg-was newc">It wasn’t in the old layout. Look in your box or pile for it.</div>';
     const isDone = need && done[k];
     return `<div class="mg-row ${need ? 'tap' : (owned ? '' : 'dim')} ${isDone ? 'done' : ''}" ${need ? `data-mg="check" data-k="${esc(k)}"` : ''}>
@@ -10168,7 +10179,7 @@ function mgNewRow(r){
   if(r.blank || r.type === 'BLANK') return `<div class="mg-row dim"><div class="mg-num">${r.pocket}</div><div class="mg-body"><div class="mg-name">Blank spot</div><div class="mg-sub">Leave this pocket empty</div></div></div>`;
   let was;
   if(o && mgSame(o, r)) was = '<div class="mg-was stay">✓ Already in the right spot</div>';
-  else if(o) was = `<div class="mg-was move">Take it from: ${esc(mgAt(o))}</div>`;
+  else if(o) was = `<div class="mg-was move">Take it from: ${esc(mgFrom(o))}</div>`;
   else was = '<div class="mg-was newc">New card: print or make this one (Binder › Layout options › Print heading cards).</div>';
   const need = !(o && mgSame(o, r)), isDone = need && k && done[k];
   return `<div class="mg-row ${need && k ? 'tap' : ''} ${isDone ? 'done' : ''}" ${need && k ? `data-mg="check" data-k="${esc(k)}"` : ''}>
