@@ -778,6 +778,27 @@ a.btn, a.btn:hover{text-decoration:none;}
 .pocket.empty.arr-empty{border:2px dashed var(--line-strong);background:transparent;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);}
 .pocket.empty.arr-empty .arr-plus{font-size:26px;opacity:.55;}
 .pocket.arr-auto{opacity:.6;}
+.tl-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0;}
+.tl-top input{flex:1 1 200px;min-width:0;}
+.tl-eras{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:8px 0 12px;}
+.tl-era{position:relative;overflow:hidden;text-align:left;background:var(--paper-raised);border:2px solid var(--line);border-left:6px solid var(--tc);border-radius:var(--radius);padding:8px 10px 12px;cursor:pointer;color:inherit;font:inherit;}
+.tl-era.on{border-color:var(--tc);box-shadow:0 0 0 2px var(--tc);}
+.tl-era b{display:block;font-size:13px;}.tl-era span{font-size:11.5px;color:var(--ink-soft);}
+.tl-era i{position:absolute;left:0;bottom:0;height:4px;background:var(--tc);}
+.tl-line{position:relative;margin-left:8px;padding-left:18px;border-left:3px solid var(--line);}
+.tl-eh{margin:18px 0 8px -21px;padding:6px 10px;border-left:6px solid var(--tc);background:var(--paper-raised);border-radius:0 var(--radius) var(--radius) 0;}
+.tl-eh h3{margin:0;font-size:16px;}.tl-eh p{margin:2px 0 0;font-size:12.5px;color:var(--ink-soft);}
+.tl-ev{position:relative;background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:0 0 10px;}
+.tl-ev:before{content:"";position:absolute;left:-28px;top:14px;width:13px;height:13px;border-radius:50%;background:var(--tc);border:2px solid var(--paper,#fff);}
+.tl-when{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--tc);font-weight:700;}
+.tl-ev h4{margin:2px 0 4px;font-size:15px;}.tl-ev p{margin:0 0 8px;font-size:13.5px;line-height:1.45;}
+.tl-pks{display:flex;flex-wrap:wrap;gap:6px;}
+.tl-pk{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:2px 8px 2px 3px;font-size:12px;background:transparent;}
+.tl-pk a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
+.tl-pk.own{border-color:var(--brass);background:var(--brass-soft);}.tl-pk.miss{opacity:.6;padding-left:8px;}
+.tl-img{width:22px;height:22px;object-fit:contain;border-radius:50%;}
+.tl-pg{font-size:10.5px;color:var(--ink-soft)!important;border-left:1px solid var(--line);padding-left:5px;}
+.tl-sub{font-size:11.5px;color:var(--ink-soft);margin-top:6px;}
 .arrbar{margin-bottom:8px;}
 .arr-sec,.arr-selbar{padding:10px 12px;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;font-size:13px;}
 .arr-selbar{border-color:var(--brass);}
@@ -1046,7 +1067,7 @@ function computeBinderLayout(species){
   // Heading cards (part, category, sub-category) can sit at the start of their section, at its end, or be left out (tabs only).
   const pend = { group:null, category:null, sub:null };
   const flushEnd = l => { const r = pend[l]; if(r){ pend[l] = null; place(r); } };
-  const putHead = (l, row) => { const w = (LAYOUT_OPTS.labelPlace || {})[l] || 'start'; if(w === 'start') place(row); else if(w === 'end') pend[l] = row; };
+  const putHeadBase = (l, row) => { const w = (LAYOUT_OPTS.labelPlace || {})[l] || 'start'; if(w === 'start') place(row); else if(w === 'end') pend[l] = row; };
   for(const group of GROUP_ORDER){
     const cats = CATEGORY_ORDER[group]||[];
     for(const category of cats){
@@ -1064,6 +1085,9 @@ function computeBinderLayout(species){
           // A new category always starts on a fresh page. A new sub-category does too, unless you chose "next row" in Binder › Layout.
           if(LAYOUT_OPTS.subStart === 'row' && category===lastCat && group===lastGroup) skipToRow(); else forceNewPage();
         }
+        const secKey0 = layoutSecKey(category, subcategory), man0 = (LAYOUT_OPTS.sectionOrder || {})[secKey0];
+        const headAt = new Set((man0 && man0.length ? man0 : []).filter(it => it && it.k === 'head').map(it => it.l)), held = {};
+        const putHead = (l, row) => { if(headAt.has(l) && ((LAYOUT_OPTS.labelPlace || {})[l] || 'start') !== 'none') held[l] = row; else putHeadBase(l, row); };
         if(group!==lastGroup){
           putHead('group',{type:'GROUP LABEL',labelLevel:'GROUP',display:group,dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'GROUP::'+group,taxBreak:'NEW GROUP'});
         }
@@ -1081,13 +1105,14 @@ function computeBinderLayout(species){
           manual.forEach(it => {
             if(!it) return;
             if(it.k === 'p'){ const s = byName.get(it.n); if(s && !used.has(s.name)){ used.add(s.name); seq.push({k:'p', s}); } }
-            else if(it.k === 'label' || it.k === 'blank' || it.k === 'spot') seq.push(it);
+            else if(it.k === 'label' || it.k === 'blank' || it.k === 'spot' || it.k === 'head') seq.push(it);
           });
           while(seq.length && seq[seq.length-1].k === 'blank') seq.pop();
           list.filter(s => !used.has(s.name)).forEach(s => seq.push({k:'p', s, fresh:true}));
           seq.forEach(it => {
             if(it.k === 'p') putPk(it.s, it.fresh ? {fresh:true} : null);
             else if(it.k === 'blank') skipOne();
+            else if(it.k === 'head'){ if(held[it.l]) place(held[it.l]); }
             else if(it.k === 'spot') place({type:'BLANK',labelLevel:'BLANK',display:'',dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'BLANK::'+(it.id || slot),taxBreak:null,custom:true,blank:true});
             else place({type:'CUSTOM LABEL',labelLevel:'NOTE',display:it.t || '',dex:null,group,category,subcategory,evoFamily:null,evoOrder:null,key:'CUSTOM::'+it.id,taxBreak:null,custom:true,details:it.d || null,cardKind:it.kind || 'note'});
           });
@@ -2732,6 +2757,7 @@ const ROUTES = [
   { id:'sections', label:'Organize', icon:'organize', group:'Binders' },
   { id:'taxonomy', label:'Taxonomy', icon:'taxonomy', group:'Browse' },
   { id:'evolutions', label:'Evolutions', icon:'evolutions', group:'Browse' },
+  { id:'timeline', label:'Timeline', icon:'history', group:'Browse' },
   { id:'import', label:'Import', icon:'import', group:'Manage' },
   { id:'history', label:'Import History', icon:'history', group:'Manage' },
   { id:'tools', label:'Tools', icon:'tools', group:'Manage' },
@@ -2829,6 +2855,7 @@ function render(){
     pokedex: args[0] ? renderSpeciesDetail : renderPokedex,
     taxonomy: renderTaxonomy,
     evolutions: renderEvolutions,
+    timeline: renderTimeline,
     binder: renderBinder,
     extras: renderExtras,
     binders: renderBindersRoute,
@@ -8950,13 +8977,14 @@ var arrUndo = [];
 var binderArrange = false, arrSel = null, arrPending = null, arrDrag = null;
 
 /* ---------------- Arranging a section by hand ---------------- */
+function arrHeadLevel(r){ return r.type === 'GROUP LABEL' ? 'group' : r.type === 'CATEGORY LABEL' ? 'category' : r.type === 'SUBCATEGORY LABEL' ? 'sub' : null; }
 function arrSections(){
   const map = new Map();
   BINDER.forEach(r => {
     const key = layoutSecKey(r.category, r.subcategory);
     let s = map.get(key); if(!s){ s = { key, category:r.category, subcategory:r.subcategory, group:r.group, pages:new Set(), body:[] }; map.set(key, s); }
     s.pages.add(r.page);
-    if(r.type === 'POKÉMON' || r.type === 'ROW LABEL' || r.type === 'CUSTOM LABEL' || r.type === 'BLANK') s.body.push(r);
+    if(r.type === 'POKÉMON' || r.type === 'ROW LABEL' || r.type === 'CUSTOM LABEL' || r.type === 'BLANK' || arrHeadLevel(r)) s.body.push(r);
   });
   map.forEach(s => { s.first = s.body.length ? s.body[0].slot : null; });
   return map;
@@ -8973,6 +9001,7 @@ function arrCell(page, pocket){
     if(row.type === 'POKÉMON') return { kind:'p', secKey, pos, name:row.display, row };
     if(row.type === 'BLANK') return { kind:'empty', spot:true, secKey, pos, row };
     if(row.type === 'ROW LABEL' || row.type === 'CUSTOM LABEL') return { kind:'label', secKey, pos, text:row.display, row, id: row.type === 'CUSTOM LABEL' ? row.key.slice(8) : null };
+    if(arrHeadLevel(row)) return { kind:'head', lvl:arrHeadLevel(row), secKey, pos, text:(STATE.labelOverrides[row.key] || row.display), row };
     return { kind:'auto', secKey, pos:null, row };
   }
   if(pos == null || pos < 0) return { kind:'none', secKey, pos:null };
@@ -8986,6 +9015,7 @@ function arrItems(secKey){
     for(let k = prev + 1; k < r.slot; k++) items.push({ k:'blank' });
     if(r.type === 'POKÉMON') items.push({ k:'p', n:r.display });
     else if(r.type === 'BLANK') items.push({ k:'spot', id:String(r.key).slice(7) });
+    else if(arrHeadLevel(r)) items.push({ k:'head', l:arrHeadLevel(r) });
     else items.push({ k:'label', t:r.display, id: r.type === 'CUSTOM LABEL' ? r.key.slice(8) : uid(), d: r.details || undefined, kind: r.cardKind && r.cardKind !== 'note' ? r.cardKind : undefined });
     prev = r.slot;
   });
@@ -9039,6 +9069,9 @@ function arrPocketHTML(page, pocket){
   if(!c || c.kind === 'none') return `<div class="pocket empty"></div>`;
   const fine = window.matchMedia && matchMedia('(pointer:fine)').matches;
   const isSel = arrSel && c.pos != null && arrSel.secKey === c.secKey && arrSel.pos === c.pos;
+  if(c.kind === 'head'){
+    return `<div class="pocket label arr arr-head ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0" aria-label="${esc(arrHeadWord(c.lvl))} card ${esc(c.text)}. Tap to pick it up"><div class="lv">${esc(c.row.labelLevel||'')}</div><div class="nm">${esc(c.text)}</div></div>`;
+  }
   if(c.kind === 'auto'){
     const r = c.row, txt = STATE.labelOverrides[r.key] || r.display;
     return `<div class="pocket label arr-auto"><div class="lv">${esc(r.labelLevel||'')}</div><div class="nm">${esc(txt)}</div></div>`;
@@ -9061,17 +9094,17 @@ function arrToolbarHTML(){
   const secFam = key && STATE.settings.sectionFamilyRows && STATE.settings.sectionFamilyRows[key] || '';
   const secFlow = key && STATE.settings.sectionFlow && STATE.settings.sectionFlow[key] || '';
   const sel = arrSel ? (() => {
-    const isL = arrSel.kind === 'label';
-    return `<div class="card arr-selbar"><div><strong>${isL ? 'Label' : ''} ${esc(isL ? arrSel.text : arrSel.name)}</strong> is picked up. Tap the pocket it should go to.</div>
+    const isL = arrSel.kind === 'label', isH = arrSel.kind === 'head';
+    return `<div class="card arr-selbar"><div><strong>${isH ? esc(arrHeadWord(arrSel.lvl)) + ' card' : isL ? 'Label' : ''} ${esc(isL || isH ? arrSel.text : arrSel.name)}</strong> is picked up. Tap the pocket it should go to.</div>
       <div class="btns">
         <button class="btn sm" data-k2="arr-moveto">Move to page / pocket…</button>
-        ${isL ? `<button class="btn sm" data-k2="arr-card-edit">Edit card…</button><button class="btn sm" data-k2="arr-label-edit">Rename</button><button class="btn sm" data-k2="arr-label-del" data-close="0">Remove (leave empty)</button><button class="btn sm" data-k2="arr-label-del" data-close="1">Remove and close the gap</button>`
+        ${isH ? '' : isL ? `<button class="btn sm" data-k2="arr-card-edit">Edit card…</button><button class="btn sm" data-k2="arr-label-edit">Rename</button><button class="btn sm" data-k2="arr-label-del" data-close="0">Remove (leave empty)</button><button class="btn sm" data-k2="arr-label-del" data-close="1">Remove and close the gap</button>`
               : `<button class="btn sm" data-k2="arr-recat">Move to another section…</button>`}
         <button class="btn sm ghost" data-k2="arr-cancel">Put it down</button>
       </div></div>`;
   })() : '';
   return `<div class="binder-edit-toolbar arrbar">
-      <div class="hint">Tap a pocket to pick it up, then tap where it goes. Tap a <strong>＋</strong> pocket to add a label or a Pokémon.${(window.matchMedia && matchMedia('(pointer:fine)').matches) ? ' Dragging works too.' : ''}</div>
+      <div class="hint">Tap a pocket to pick it up, then tap where it goes. This works for the part, category and sub-category cards too. Tap a <strong>＋</strong> pocket to add a label or a Pokémon.${(window.matchMedia && matchMedia('(pointer:fine)').matches) ? ' Dragging works too.' : ''}</div>
       <div class="btns"><button class="btn ghost" data-k2="arr-undo" ${arrUndo.length?'':'disabled'}>${ICONS.left||''} Undo</button></div>
     </div>
     ${key ? `<div class="card arr-sec"><div><strong>${esc(arrSecTitle(key))}</strong> · ${manual ? 'arranged by hand' : 'automatic order'}${nFresh ? ` · ${nFresh} new Pokémon at the end of this section` : ''}</div>
@@ -9086,7 +9119,7 @@ function arrToolbarHTML(){
 function arrTap(ap){
   const [pg, pk] = ap.split(':').map(Number), c = arrCell(pg, pk); if(!c) return;
   if(!arrSel){
-    if(c.kind === 'p' || c.kind === 'label'){ arrSel = { secKey:c.secKey, pos:c.pos, kind:c.kind, name:c.name, text:c.text, id:c.id }; render(); return; }
+    if(c.kind === 'p' || c.kind === 'label' || c.kind === 'head'){ arrSel = { secKey:c.secKey, pos:c.pos, kind:c.kind, name:c.name, text:c.text, id:c.id, lvl:c.lvl }; render(); return; }
     if(c.kind === 'empty'){ openArrEmptySheet(c); return; }
     return;
   }
@@ -9095,10 +9128,11 @@ function arrTap(ap){
   if(c.pos === arrSel.pos){ arrSel = null; render(); return; }
   openArrTargetSheet(c);
 }
-function arrCellName(c){ return c.kind === 'p' ? c.name : c.kind === 'label' ? 'the label “' + c.text + '”' : 'an empty pocket'; }
+function arrHeadWord(l){ return l === 'group' ? 'part' : l === 'category' ? 'category' : 'sub-category'; }
+function arrCellName(c){ return c.kind === 'p' ? c.name : c.kind === 'head' ? 'the ' + arrHeadWord(c.lvl) + ' card “' + c.text + '”' : c.kind === 'label' ? 'the label “' + c.text + '”' : 'an empty pocket'; }
 function openArrTargetSheet(c){
   arrPending = { secKey:c.secKey, to:c.pos };
-  const nm = arrSel.kind === 'label' ? 'the label “' + arrSel.text + '”' : arrSel.name, empty = c.kind === 'empty';
+  const nm = arrSel.kind === 'head' ? 'the ' + arrHeadWord(arrSel.lvl) + ' card “' + arrSel.text + '”' : arrSel.kind === 'label' ? 'the label “' + arrSel.text + '”' : arrSel.name, empty = c.kind === 'empty';
   openModal('Where should it go?', `
     <p style="margin:0 0 10px;">Moving <strong>${esc(nm)}</strong> to ${empty ? 'this empty pocket' : 'where <strong>' + esc(arrCellName(c)) + '</strong> is'}.</p>
     ${empty ? `<button class="btn primary arr-btn" data-k2="arr-do" data-how="move">Put it in this empty pocket</button>
@@ -9391,6 +9425,8 @@ function handleK2(el){
       layoutSnapshot(); STATE.settings.pinFirst = cur; layoutSave(); openLayoutOptions(); render(); return true;
     }
     case 'pin-del': layoutSnapshot(); STATE.settings.pinFirst = (STATE.settings.pinFirst || []).filter(x => x !== d.v); layoutSave(); openLayoutOptions(); render(); return true;
+    case 'tl-era': tlEra = tlEra === +d.v ? -1 : +d.v; render(); return true;
+    case 'tl-mode': tlMode = d.v; render(); return true;
     case 'arr-toggle': binderArrange = !binderArrange; arrSel = null; if(binderArrange) binderEditMode = false; render(); return true;
     case 'arr-undo': layoutUndo(); return true;
     case 'arr-cancel': arrSel = null; render(); return true;
@@ -9443,7 +9479,7 @@ document.addEventListener('keydown', function(e){
 document.addEventListener('dragstart', function(e){
   if(!binderArrange) return; const ap = e.target.closest && e.target.closest('[data-ap]'); if(!ap) return;
   const [pg, pk] = ap.dataset.ap.split(':').map(Number), c = arrCell(pg, pk);
-  if(!c || (c.kind !== 'p' && c.kind !== 'label')){ e.preventDefault(); return; }
+  if(!c || (c.kind !== 'p' && c.kind !== 'label' && c.kind !== 'head')){ e.preventDefault(); return; }
   arrDrag = { secKey:c.secKey, pos:c.pos }; try{ e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ap.dataset.ap); }catch(_){}
 });
 document.addEventListener('dragover', function(e){ if(binderArrange && arrDrag && e.target.closest && e.target.closest('[data-ap]')) e.preventDefault(); });
@@ -10041,6 +10077,99 @@ function typeMatchupHTML(s){
     <button class="btn ghost sm" data-nav="types">Open the type guide</button>
   </div>`;
 }
+/* ---------------- Timeline of the Pokémon world, tied to your cards ---------------- */
+var tlEra = -1, tlMode = 'all', tlQ = '';
+const TL_ERAS = [
+  { n:'Creation', c:'#b9a24a', d:'Before the world: Arceus and what it made. Binder idea: Part I, Deities.' },
+  { n:'Prehistory', c:'#6f9a5a', d:'The fossil age and the deep past. Binder idea: Ancients, then Fossils.' },
+  { n:'Ancient world', c:'#4f8fa3', d:'Civilizations, relics and legends, roughly 10,000 to 800 years ago.' },
+  { n:'Recent history', c:'#a5695a', d:'The last ~700 years, up to just before Generation I.' },
+  { n:'The games', c:'#7a6aa8', d:'What happens during the main games and spin-offs.' },
+  { n:'Far future', c:'#4a9d8e', d:'Pokémon Pokopia, over a century after the core games.' }
+];
+const TL_ALIAS = { 'Arceus':'Arceus (Steel-Type)', 'Xerneas':'Xerneas (Active Mode)' };
+const TL_RAW = `0|Before time|The Egg|In a vortex of chaos and nothingness a single Egg appears and hatches Arceus, the first being.|Arceus
+0|Creation|Time, space and anti-matter|Arceus creates Dialga (time), Palkia (space) and Giratina (anti-matter). Giratina is banished to the Distortion World; Dialga and Palkia build the universe.|Arceus;Dialga;Palkia;Giratina
+0|Creation|The Lake Guardians|Arceus creates knowledge (Uxie), emotion (Mesprit) and willpower (Azelf). They share these traits with all life, then settle in three Sinnoh lakes.|Uxie;Mesprit;Azelf
+0|Creation|Land and sea|Primal Groudon and Kyogre form from primal energy and make land and sea. They become rivals until Rayquaza ends the fight. Rayquaza then patrols the ozone layer against asteroids.|Groudon;Kyogre;Rayquaza
+0|Creation|Continents and fire|Regigigas moves the continents into place. Mount Coronet rises; Stark Mountain forms and Heatran is born in a pool of lava. Mew lives in great numbers.|Regigigas;Heatran;Mew
+0|Creation|Arceus sleeps|Arceus makes the Adamant Crystal, Lustrous Globe and Griseous Core (tied to Dialga, Palkia and Giratina), then falls into a deep slumber.|Arceus
+1|300 million years ago|Early Genesect and Kabuto|The original, un-upgraded Genesect lives in this era, and Kabuto and Kabutops swim the sea. Mew numbers begin to fall as other Pokémon take over.|Genesect;~Kabuto
+1|Hundreds of millions of years ago|Carbink is born|Carbink forms under deep underground heat and pressure, then sleeps undisturbed.|Carbink
+1|100 million years ago|The fossil age|Omanyte, Aerodactyl, Lileep, Cranidos, Shieldon, Tirtouga, Archen, Tyrunt and Amaura families are widespread, then all go extinct. Archen gave rise to birds and Tirtouga to turtles. Omastar preyed on Shellder; Tropius also lived then.|~Omanyte;Aerodactyl;~Lileep;~Cranidos;~Shieldon;~Tirtouga;~Archen;~Tyrunt;~Amaura;Shellder;Tropius
+1|About 100 million years ago|Living fossils and the first bugs|Relicanth stays unchanged to the present day. Anorith's eight legs became eight wings and it gave rise to bug Pokémon.|Relicanth;~Anorith
+1|Ancient times|The original Fossil Pokémon|The Fossilized Drake, Dino, Bird and Fish existed in ancient times. Their halves become Dracozolt, Arctozolt, Dracovish and Arctovish in the present.|Dracozolt;Arctozolt;Dracovish;Arctovish
+1|2 million years ago|Terapagos and Area Zero|Terapagos lives in Paldea, is caught in seismic shifts, and survives by crystallizing, sleeping in the Area Zero Underdepths. The Great Crater of Paldea forms 1 million years ago.|Terapagos
+1|20,000 years ago|Eternatus falls|A meteorite carrying Eternatus lands in Galar. The first Claydol comes to life from a clay doll.|Eternatus;~Baltoy
+1|10,000 years ago|Ice Age and early riders|Mamoswine flourish in the last Ice Age, then decline. Cyclizar live beside humans, who ride them.|~Swinub;Cyclizar
+1|About 10,000 years ago|Regigigas builds the golems|Regigigas makes Regirock (clay), Regice (ice) and Registeel (magma), later Regieleki (electric energy) and Regidrago (dragon energy). Humans later seal them away; Regigigas is sealed in Snowpoint Temple.|Regigigas;Regirock;Regice;Registeel;Regieleki;Regidrago
+1|Distant past|Magikarp weaken|The Magikarp population mutates for unknown reasons and becomes weaker.|~Magikarp
+1|5,000 years ago|Gogoat domesticated|Humans begin domesticating Gogoat and using them for transport.|~Skiddo
+2|Many years before Legends: Arceus|The ancient hero of Hisui|A hero befriends ten powerful Pokémon, collects all of Arceus's Plates and defeats Arceus, who grants its blessing. Their descendants become the Ride and Noble Pokémon.|Arceus;Wyrdeer;Kleavor;Hisuian Lilligant;Ursaluna;Basculegion;Hisuian Arcanine;Hisuian Electrode;Sneasler;Hisuian Braviary;Hisuian Avalugg
+2|3,000 years before Gen VI|AZ and the ultimate weapon|A war kills AZ's Eternal Flower Floette. He revives her with Infinity Energy, then turns the machine into a weapon to end the war. Floette leaves him in disgust.|Floette
+2|3,000 years before Gen VIII|The Darkest Day|Eternamax Eternatus brings the Darkest Day to Galar. Zacian, Zamazenta and two youths stop it. Melmetal is worshipped for making metal from nothing.|Eternatus;Zacian;Zamazenta;Melmetal
+2|2,000 years before Gen V|Concrete and the Dragonspiral Tower|Conkeldurr teaches humans to make concrete. The Relic Castle (2,500 years ago) and Dragonspiral Tower are among Unova's oldest structures.|Conkeldurr
+2|2,000 years before ORAS|Meteor Falls|Meteor showers hit Hoenn. Groudon and Kyogre fight over natural energy; the Draconid people wish on a meteor to summon Rayquaza, who puts both to sleep.|Rayquaza;Groudon;Kyogre
+2|2,000 years before Z-A|AZ builds Ange|At a powerful man's request, AZ builds Ange, a device for eternal life, inside what becomes Prism Tower.|Floette
+2|2,000 to 1,000 years ago|Almighty Sinnoh|Ancient Sinnoh people worship Arceus as "almighty Sinnoh". Dialga, Palkia and Giratina are honored in the Temple of Sinnoh.|Arceus;Dialga;Palkia;Giratina
+2|1,500 years before Gen I|Ruins and overhunting|The Ruins of Alph, Tanoby Ruins and Solaceon Ruins are built. Farfetch'd numbers fall from overhunting.|Unown;Farfetch'd
+2|1,000 years before ORAS|The first Mega Evolution|A second meteor strikes Hoenn. Rayquaza performs the world's first Mega Evolution, ends the Groudon–Kyogre fight and removes their Primal forms. Sky Pillar is built.|Rayquaza;Groudon;Kyogre
+2|800 years before Gen VI|Xerneas and Yveltal sleep|Xerneas releases its life energy and sleeps as a tree; Yveltal absorbs life energy and sleeps as a cocoon.|Xerneas;Yveltal
+3|About 700 years before Gen II|Bell Tower and Brass Tower|Lugia and Ho-Oh perch atop the two Ecruteak towers.|Lugia;Ho-Oh
+3|About 500 years before Gen IV|Spiritomb is bound|A Spiritomb is bound to a fissure in an Odd Keystone as punishment.|Spiritomb
+3|About 500 years before Gen VII|Magearna is created|A scientist builds Magearna's Soul-Heart from other Pokémon's life energy and gives it to a king's daughter.|Magearna
+3|About 400 years before Gen II|Slowpoke ends a drought|Slowpoke's yawn brings rain back to Azalea Town and earns it an honored place.|~Slowpoke
+3|About 400 years before Gen VIII|Rolycoly found|Rolycoly is first discovered in a coal mine.|~Rolycoly
+3|Around 300 years before Gen IV|Poké Balls invented|Poké Balls are first crafted from Apricorns.|
+3|Legends: Arceus era|The Galaxy Expedition Team|Volo has Giratina tear a rift on Mount Coronet to force Arceus out. A traveler is brought from the present, calms the Noble Pokémon, catches Dialga and Palkia, and gathers Arceus's Plates. The first Hisui Pokédex documents 238 species.|Arceus;Dialga;Palkia;Giratina;Kleavor;Wyrdeer;Ursaluna;Basculegion;Sneasler
+3|About 200 years before Gen V|Village Bridge and Victini|A man and his Gurdurr build Village Bridge. An ultra-rich family buys the island that becomes Liberty Garden and hides Victini in a backroom.|Gurdurr;Victini
+3|About 200 years before Gen IX|The Area Zero expedition|An expedition reaches Area Zero, finds the Paradox Pokémon, Herba Mystica, Titans and Terastallized Pokémon, and records it in the Scarlet/Violet Book.|Terapagos
+3|Hundreds of years before Gen IX|Kitakami|Ursaluna travels from Hisui and becomes Bloodmoon Ursaluna. Ogerpon and its partner reach Kitakami; Pecharunt and the Loyal Three (Okidogi, Munkidori, Fezandipiti) steal their masks and are defeated by Ogerpon.|Ursaluna;Ogerpon;Pecharunt;Okidogi;Munkidori;Fezandipiti
+3|About 150 years before Gen II|Brass Tower burns|Three nameless Pokémon die in the fire. Lugia flees to the Whirl Islands; Ho-Oh revives the three as Raikou, Entei and Suicune.|Lugia;Ho-Oh;Raikou;Entei;Suicune
+3|About 100 years before Gen V|Unova's new Pokémon|Klink appears in Chargestone Cave and Roggenrola is found in an earthquake fissure.|~Klink;~Roggenrola
+3|About 50 and 40 years before Gen V / Gen III|Elgyem and Lunatone|Elgyem is first seen in a desert. Lunatone is first seen in a crater.|~Elgyem;Lunatone
+3|1995|Porygon, the first engineered Pokémon|Silph Co. creates Porygon with state-of-the-art technology.|~Porygon
+3|Some years before Gen I|Mew and Mewtwo|Scientists discover Mew in Guyana, then clone it as Mewtwo, who escapes and destroys the Cinnabar mansion.|Mew;Mewtwo
+3|10 years before Gen IX|The time machine|Professor Sada/Turo builds a time machine and pulls Paradox Pokémon into Area Zero, including two Koraidon/Miraidon.|Koraidon;Miraidon
+4|Gen I / III|Kanto and Hoenn|Red becomes Champion; Brendan/May calms Groudon or Kyogre after Team Magma/Aqua release them. In Let's Go, the player catches Mewtwo.|Mewtwo;Groudon;Kyogre;Rayquaza
+4|Gen II / IV|Johto and Sinnoh|Team Rocket takes over the Goldenrod Radio Tower after a red Gyarados rampage. In Sinnoh, Team Galactic's Cyrus tries to remake the universe with Dialga and Palkia.|Gyarados;Dialga;Palkia;Giratina;Lugia;Ho-Oh
+4|Gen V|Unova|Team Plasma and N pursue Pokémon liberation with Reshiram or Zekrom. Dudley created Genesect from an ancient insect Pokémon.|Reshiram;Zekrom;Kyurem;Genesect
+4|Gen VI|Kalos|Lysandre uses the ultimate weapon, with Xerneas or Yveltal beneath his base. Zygarde saves his life.|Xerneas;Yveltal;Zygarde
+4|Gen VII|Alola and Ultra Space|Professor Mohn studies Ultra Wormholes; Lusamine opens them. Nebby (Cosmog) evolves into Solgaleo or Lunala; Necrozma returns. The UB Task Force hunts Ultra Beasts.|~Cosmog;Necrozma;Nihilego;Guzzlord;Type: Null
+4|Gen VIII|Galar|Rose reawakens Eternatus; Zacian and Zamazenta are summoned. The Isle of Armor adds Kubfu and Urshifu, the Crown Tundra adds Calyrex, and Necrozma is caught.|Eternatus;Zacian;Zamazenta;Kubfu;Urshifu;Calyrex;Glastrier;Spectrier;Necrozma
+4|Gen IX|Paldea, Kitakami and Blueberry|Koraidon/Miraidon, the Titans and Paradox Pokémon, Ogerpon and its masks, and finally Terapagos in the Area Zero Underdepths.|Koraidon;Miraidon;Ogerpon;Terapagos;Okidogi;Munkidori;Fezandipiti;Pecharunt
+4|Legends: Z-A|Lumiose City|Ange awakens and causes Rogue Mega Evolution. Zygarde, Floette, Rogue Mega Absol and Darkrai, Hoopa's Hyperspace Lumiose, Rayquaza, Xerneas and Yveltal all feature.|Zygarde;Floette;Absol;Darkrai;Hoopa;Rayquaza;Xerneas;Yveltal;Lucario
+4|Colosseum / XD|Orre and Shadow Pokémon|Wes and then Michael snag and purify Cipher's Shadow Pokémon, ending with Shadow Lugia.|Lugia
+5|Far future|Pokopia|Over a century after the core games, humanity has left for space and the Pokémon are stored in a computer. A fail-safe releases Ditto, who rebuilds a habitable world; Professor Tangrowth stays in the wild.|Ditto;Tangrowth`;
+const TL = TL_RAW.split('\n').map(l => { const p = l.split('|'); return { era:+p[0], when:p[1], title:p[2], text:p[3], pk:(p[4] || '').split(';').filter(Boolean) }; });
+function tlNames(t){
+  const list = t[0] === '~' ? SPECIES.filter(x => x.evoFamily === t.slice(1)).map(x => x.name) : [TL_ALIAS[t] || t];
+  return list.filter(n => speciesByName.has(n));
+}
+function tlChip(n, pg){
+  const sp = speciesByName.get(n), own = isOwned(n);
+  return `<span class="tl-pk ${own ? 'own' : 'miss'}" title="${esc(sp.category || '')}${sp.subcategory && sp.subcategory !== NO_SUB ? ' › ' + esc(sp.subcategory) : ''}"><a href="#/pokedex/${encodeURIComponent(n)}">${own ? speciesImgTag(sp, 'tl-img') : ''}${esc(n)}</a>${pg ? `<a class="tl-pg" href="#/binder/${pg}">p.${pg}</a>` : ''}</span>`;
+}
+function renderTimeline(){
+  const pageOf = {}; BINDER.forEach(r => { if(r.type === 'POKÉMON') pageOf[r.display] = r.page; });
+  const evs = TL.map(e => { const names = []; e.pk.forEach(t => tlNames(t).forEach(n => { if(!names.includes(n)) names.push(n); })); return Object.assign({}, e, { names, own: names.filter(isOwned).length }); });
+  const q = tlQ.trim().toLowerCase();
+  const show = evs.filter(e => (tlEra < 0 || e.era === tlEra) && (tlMode === 'all' || (tlMode === 'own' ? e.own > 0 : e.names.length > e.own)) && (!q || (e.title + ' ' + e.when + ' ' + e.text + ' ' + e.names.join(' ')).toLowerCase().includes(q)));
+  const strip = TL_ERAS.map((E, i) => { const set = new Set(); evs.filter(e => e.era === i).forEach(e => e.names.forEach(n => set.add(n))); const tot = set.size, own = [...set].filter(isOwned).length;
+    return `<button class="tl-era ${tlEra === i ? 'on' : ''}" data-k2="tl-era" data-v="${i}" style="--tc:${E.c}"><b>${esc(E.n)}</b><span>${own} of ${tot} cards</span><i style="width:${tot ? Math.round(100 * own / tot) : 0}%"></i></button>`; }).join('');
+  let last = -1, body = '';
+  show.forEach(e => {
+    const E = TL_ERAS[e.era];
+    if(e.era !== last){ last = e.era; body += `<div class="tl-eh" style="--tc:${E.c}"><h3>${esc(E.n)}</h3><p>${esc(E.d)}</p></div>`; }
+    body += `<div class="tl-ev" style="--tc:${E.c}"><div class="tl-when">${esc(e.when)}</div><h4>${esc(e.title)}</h4><p>${esc(e.text)}</p>${e.names.length ? `<div class="tl-pks">${e.names.map(n => tlChip(n, pageOf[n])).join('')}</div><div class="tl-sub">${e.own} of ${e.names.length} in your collection · tap a name for its card, “p.” for its binder page</div>` : ''}</div>`;
+  });
+  const mb = (v, t) => `<button class="btn sm ${tlMode === v ? 'accent' : ''}" data-k2="tl-mode" data-v="${v}">${t}</button>`;
+  return `<h2>Timeline</h2><p class="muted">The Pokémon world in order, from before time to the far future, with the Pokémon of each event linked to your collection.</p>
+    <div class="tl-eras">${strip}</div>
+    <div class="tl-top"><input type="search" id="tlQ" placeholder="Search events or Pokémon" value="${esc(tlQ)}">${mb('all', 'All events')}${mb('own', 'Cards I have')}${mb('miss', 'Cards I’m missing')}</div>
+    <div class="tl-line">${body || '<p class="muted">No events match.</p>'}</div>`;
+}
+document.addEventListener('input', function(e){ if(e.target && e.target.id === 'tlQ'){ tlQ = e.target.value; clearTimeout(window.__tlT); window.__tlT = setTimeout(render, 200); } });
 function renderTypeGuide(args){
   let sel = decodeURIComponent((args && args[0]) || '');
   if(ALL_TYPES.includes(sel)) typeGuideSel = sel; else sel = ALL_TYPES.includes(typeGuideSel) ? typeGuideSel : '';
