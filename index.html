@@ -845,6 +845,7 @@ a.btn, a.btn:hover{text-decoration:none;}
 .linklike{background:none;border:0;padding:0;font:inherit;font-weight:600;color:var(--brass);cursor:pointer;text-align:left;}
 .dc-kind{cursor:pointer;} .dc-kind.active{background:var(--brass-soft);}
 </style>
+<style>.pocket.has-art .lv,.pocket.has-art .nm,.pocket.has-art .dc-lines{color:#fff!important;text-shadow:0 1px 3px #000}</style>
 </head>
 <body>
 <div id="app">
@@ -2750,6 +2751,7 @@ const ROUTES = [
   { id:'dashboard', label:'Dashboard', icon:'dashboard', group:'Collect' },
   { id:'collection', label:'Collection', icon:'collection', group:'Collect' },
   { id:'pokedex', label:'Pokédex', icon:'pokedex', group:'Collect' },
+  { id:'wants', label:'Want list', icon:'star', group:'Collect' },
   { id:'binder', label:'Binder', icon:'binder', group:'Binders' },
   { id:'extras', label:'Extras Binder', icon:'extras', group:'Binders' },
   { id:'shiny', label:'Shiny Binder', icon:'star', group:'Binders' },
@@ -2856,6 +2858,7 @@ function render(){
     taxonomy: renderTaxonomy,
     evolutions: renderEvolutions,
     timeline: renderTimeline,
+    wants: renderWants,
     binder: renderBinder,
     extras: renderExtras,
     binders: renderBindersRoute,
@@ -4445,6 +4448,13 @@ function toggleMergeSelect(slotStr){
   if(idx>=0) mergeSelection.splice(idx,1); else mergeSelection.push(slotStr);
   render();
 }
+function labelArtShrink(file){ return new Promise(res => { const r = new FileReader(); r.onload = () => { const im = new Image(); im.onload = () => { const k = Math.min(1, 260 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.7)); }; im.onerror = () => res(null); im.src = r.result; }; r.onerror = () => res(null); r.readAsDataURL(file); }); }
+async function labelArtApply(item, key, val){
+  const art = (STATE.settings.labelArt = STATE.settings.labelArt || {}), f = ($('#labelArtFile') || {}).files, clr = $('#labelArtClear') && $('#labelArtClear').dataset.on === '1';
+  const nk = item.labelLevel === 'CATEGORY' ? 'CATEGORY::' + val : item.labelLevel === 'SUBCATEGORY' ? 'SUBCATEGORY::' + val : key;
+  let url = art[key]; if(f && f[0]) url = (await labelArtShrink(f[0])) || url; else if(clr) url = null;
+  delete art[key]; if(url) art[nk] = url; persist('settings');
+}
 function openLabelEditor(slotStr){
   const key = slotStr;
   const item = BINDER.find(b=>b.key===key);
@@ -4456,15 +4466,17 @@ function openLabelEditor(slotStr){
       <label>Label text</label>
       <input type="text" id="labelEditInput" value="${esc(current)}" maxlength="60">
     </div>
+    <div class="field"><label>Picture (optional)</label><input type="file" id="labelArtFile" accept="image/*">${(STATE.settings.labelArt || {})[key] ? `<button class="btn ghost sm" id="labelArtClear" type="button" onclick="this.dataset.on='1';this.textContent='Picture will be removed'">Remove picture</button>` : ''}</div>
     <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Page ${item.page}, pocket ${item.pocket} · ${esc(item.labelLevel||'')}${isCategoryLevel ? ' — this renames it everywhere, including in Settings' : ''}</p>
   `, `
     <button class="btn ghost" data-action="close-modal">Cancel</button>
     ${(!isCategoryLevel && STATE.labelOverrides[key]) ? `<button class="btn ghost" id="labelResetBtn">Reset to original</button>` : ''}
     <button class="btn accent" id="labelSaveBtn">Save</button>
   `);
-  $('#labelSaveBtn').addEventListener('click', () => {
+  $('#labelSaveBtn').addEventListener('click', async () => {
     const val = ($('#labelEditInput').value||'').trim();
     if(!val){ toast("Label can't be empty."); return; }
+    await labelArtApply(item, key, val);
     // CATEGORY/SUBCATEGORY pockets are renamed for real (same code path as the
     // Settings taxonomy manager) instead of getting a cosmetic-only overlay —
     // otherwise the binder and Settings can end up showing two different names
@@ -6015,7 +6027,8 @@ function renderPocket(slot, editMode, selection, hl){
     const hasCard = !editMode && slot.custom && slot.details && slot.details.length;
     const bodyAttr = editMode ? `data-action="edit-label-tap" data-slot="${esc(slot.key)}"` : (hasCard ? `data-k2="card-view" data-key="${esc(slot.key)}" role="button" tabindex="0"` : '');
     const lvTxt = slot.cardKind === 'art' ? 'ART' : slot.cardKind === 'fact' ? 'DID YOU KNOW' : (slot.labelLevel||'');
-    return `<div class="${cls}" ${bodyAttr}>
+    const artUrl = (STATE.settings.labelArt || {})[slot.key];
+    return `<div class="${cls}${artUrl ? ' has-art' : ''}" ${bodyAttr}${artUrl ? ` style="background:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url('${artUrl}') center/cover;color:#fff;"` : ''}>
       <div class="lv">${esc(lvTxt)}</div>
       <div class="nm">${esc(displayText)}</div>
       ${slot.details && slot.details.length ? `<div class="dc-lines">${esc(slot.details.slice(0,4).join(' · '))}</div>` : ''}
@@ -9098,7 +9111,7 @@ function arrToolbarHTML(){
     return `<div class="card arr-selbar"><div><strong>${isH ? esc(arrHeadWord(arrSel.lvl)) + ' card' : isL ? 'Label' : ''} ${esc(isL || isH ? arrSel.text : arrSel.name)}</strong> is picked up. Tap the pocket it should go to.</div>
       <div class="btns">
         <button class="btn sm" data-k2="arr-moveto">Move to page / pocket…</button>
-        ${isH ? '' : isL ? `<button class="btn sm" data-k2="arr-card-edit">Edit card…</button><button class="btn sm" data-k2="arr-label-edit">Rename</button><button class="btn sm" data-k2="arr-label-del" data-close="0">Remove (leave empty)</button><button class="btn sm" data-k2="arr-label-del" data-close="1">Remove and close the gap</button>`
+        ${isH ? `<button class="btn sm" data-k2="arr-head-edit">Rename / picture…</button>` : isL ? `<button class="btn sm" data-k2="arr-card-edit">Edit card…</button><button class="btn sm" data-k2="arr-label-edit">Rename</button><button class="btn sm" data-k2="arr-label-del" data-close="0">Remove (leave empty)</button><button class="btn sm" data-k2="arr-label-del" data-close="1">Remove and close the gap</button>`
               : `<button class="btn sm" data-k2="arr-recat">Move to another section…</button>`}
         <button class="btn sm ghost" data-k2="arr-cancel">Put it down</button>
       </div></div>`;
@@ -9425,6 +9438,13 @@ function handleK2(el){
       layoutSnapshot(); STATE.settings.pinFirst = cur; layoutSave(); openLayoutOptions(); render(); return true;
     }
     case 'pin-del': layoutSnapshot(); STATE.settings.pinFirst = (STATE.settings.pinFirst || []).filter(x => x !== d.v); layoutSave(); openLayoutOptions(); render(); return true;
+    case 'arr-head-edit': { if(arrSel){ const sec = arrSecs().get(arrSel.secKey), r = sec && sec.body.find(x => arrHeadLevel(x) === arrSel.lvl); if(r) openLabelEditor(r.key); } return true; }
+    case 'want-search': wSearch(); return true;
+    case 'want-refresh': wRefresh(); return true;
+    case 'want-add': { const c = (wantRes || []).find(x => x.id === d.id); if(c && !wList().some(w => w.id === c.id)){ const w = { id:c.id, name:c.name, num:c.number, set:c.set.name, img:c.images && c.images.small }; wApply(w, c); wList().push(w); persist('settings'); toast('Added to your want list.'); } render(); return true; }
+    case 'want-del': STATE.settings.wants = wList().filter(w => w.id !== d.id); persist('settings'); render(); return true;
+    case 'want-sug': { const w = wList().find(x => x.id === d.id); if(w){ w.target = wSuggest(w); persist('settings'); render(); } return true; }
+    case 'want-target': { const w = wList().find(x => x.id === d.id); if(w){ const v = prompt('Price you want to pay (US dollars)', w.target != null ? w.target : ''); if(v !== null){ const n = parseFloat(v.replace(/[^0-9.]/g, '')); w.target = isNaN(n) ? null : n; persist('settings'); render(); } } return true; }
     case 'tl-era': tlEra = tlEra === +d.v ? -1 : +d.v; render(); return true;
     case 'tl-mode': tlMode = d.v; render(); return true;
     case 'arr-toggle': binderArrange = !binderArrange; arrSel = null; if(binderArrange) binderEditMode = false; render(); return true;
@@ -10149,6 +10169,55 @@ function tlNames(t){
 function tlChip(n, pg){
   const sp = speciesByName.get(n), own = isOwned(n);
   return `<span class="tl-pk ${own ? 'own' : 'miss'}" title="${esc(sp.category || '')}${sp.subcategory && sp.subcategory !== NO_SUB ? ' › ' + esc(sp.subcategory) : ''}"><a href="#/pokedex/${encodeURIComponent(n)}">${own ? speciesImgTag(sp, 'tl-img') : ''}${esc(n)}</a>${pg ? `<a class="tl-pg" href="#/binder/${pg}">p.${pg}</a>` : ''}</span>`;
+}
+/* ---------------- Want list: Pokémon cards you want, with daily TCGplayer prices and eBay searches ---------------- */
+var wantQ = '', wantRes = null, wantMsg = '', wantBusy = false, wantAuto = false;
+const wList = () => (STATE.settings.wants = STATE.settings.wants || []);
+const wMoney = n => n == null ? '–' : '$' + Number(n).toFixed(2);
+function wSuggest(w){ if(w.m == null) return null; const h = Object.values(w.hist || {}), mn = h.length > 2 ? Math.min.apply(null, h) * 1.05 : w.m * 0.9; return Math.round(Math.max(w.lo || 0, Math.min(w.m * 0.9, mn)) * 100) / 100; }
+function wApply(w, c){
+  const p = (c && c.tcgplayer && c.tcgplayer.prices) || {}, k = (w.v && p[w.v]) ? w.v : (Object.keys(p).find(x => p[x] && p[x].market != null) || Object.keys(p)[0]);
+  w.v = k || ''; w.m = k ? p[k].market : null; w.lo = k ? p[k].low : null; w.t = Date.now(); if(c.tcgplayer && c.tcgplayer.url) w.tcg = c.tcgplayer.url;
+  if(w.m != null){ w.hist = w.hist || {}; w.hist[new Date().toISOString().slice(0, 10)] = w.m; const ks = Object.keys(w.hist).sort(); while(ks.length > 60) delete w.hist[ks.shift()]; }
+}
+async function wRefresh(){
+  wantBusy = true; wantMsg = 'Checking prices…'; render();
+  try{ for(const w of wList()){ const r = await fetchJSONTimeout('https://api.pokemontcg.io/v2/cards/' + encodeURIComponent(w.id) + '?select=id,tcgplayer', 20000); if(r && r.data) wApply(w, r.data); } persist('settings'); wantMsg = 'Prices updated.'; }
+  catch(e){ wantMsg = 'Could not reach the price database. Try again in a moment.'; }
+  wantBusy = false; render();
+}
+async function wSearch(){
+  const q = wantQ.trim().replace(/"/g, ''); if(!q) return;
+  wantBusy = true; wantMsg = 'Searching…'; render();
+  try{ const r = await fetchJSONTimeout('https://api.pokemontcg.io/v2/cards?q=' + encodeURIComponent('name:"' + q + '"') + '&orderBy=-set.releaseDate&pageSize=24&select=id,name,number,set,images,tcgplayer', 20000); wantRes = (r && r.data) || []; wantMsg = wantRes.length ? '' : 'No cards found.'; }
+  catch(e){ wantMsg = 'Could not reach the card database. Try again in a moment.'; }
+  wantBusy = false; render();
+}
+function renderWants(){
+  const L = wList(), hits = L.filter(w => w.target != null && w.m != null && w.m <= w.target).length;
+  if(!wantAuto && !wantBusy && L.length && L.some(w => !w.t || Date.now() - w.t > 432e5)){ wantAuto = true; setTimeout(wRefresh, 50); }
+  const eb = (w, sold) => 'https://www.ebay.com/sch/i.html?_nkw=' + encodeURIComponent(w.name + ' ' + w.num + ' ' + w.set) + '&_sacat=183454&_sop=10' + (sold ? '&LH_Sold=1&LH_Complete=1' : '');
+  const rows = L.map(w => { const sg = wSuggest(w), hit = w.target != null && w.m != null && w.m <= w.target;
+    return `<div class="card" style="display:flex;gap:10px;margin-bottom:8px;">
+      ${w.img ? `<img src="${esc(w.img)}" alt="" style="width:70px;height:98px;object-fit:cover;border-radius:6px;">` : ''}
+      <div style="flex:1;min-width:0;"><strong>${esc(w.name)}</strong> ${hit ? '<span class="badge owned">At your price</span>' : ''}
+        <div class="tx-hint" style="margin:2px 0 6px;">${esc(w.set)} · #${esc(w.num)}${w.v ? ' · ' + esc(w.v) : ''}</div>
+        <div>TCGplayer market ${wMoney(w.m)} (low ${wMoney(w.lo)})</div>
+        <div>Your price: ${w.target != null ? wMoney(w.target) : 'not set'} · Suggested wait price: ${sg != null ? wMoney(sg) : '–'}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+          ${sg != null ? `<button class="btn sm" data-k2="want-sug" data-id="${esc(w.id)}">Use suggested</button>` : ''}
+          <button class="btn sm" data-k2="want-target" data-id="${esc(w.id)}">Set price</button>
+          ${w.tcg ? `<a class="btn sm" href="${esc(w.tcg)}" target="_blank" rel="noopener">TCGplayer</a>` : ''}
+          <a class="btn sm" href="${esc(eb(w))}" target="_blank" rel="noopener">eBay now</a>
+          <a class="btn sm" href="${esc(eb(w, 1))}" target="_blank" rel="noopener">eBay sold</a>
+          <button class="btn sm" data-k2="want-del" data-id="${esc(w.id)}">Remove</button>
+        </div></div></div>`; }).join('');
+  const res = (wantRes || []).map(c => `<button class="browse-card" data-k2="want-add" data-id="${esc(c.id)}">${c.images && c.images.small ? `<img src="${esc(c.images.small)}" alt="" style="width:100%;border-radius:6px;">` : ''}<span class="bc-t">${esc(c.name)}</span><span class="bc-n">${esc(c.set.name)} #${esc(c.number)}</span></button>`).join('');
+  return `<div class="pagehead"><div><h1>Want list</h1><div class="sub">${L.length} card${L.length === 1 ? '' : 's'}${hits ? ' · ' + hits + ' at your price' : ''}</div></div><button class="btn" data-k2="want-refresh">Refresh prices</button></div>
+    <p class="tx-hint">TCGplayer prices come from the free Pokémon card database and update about once a day. The eBay buttons open a live search.</p>
+    <div class="card" style="margin-bottom:10px;"><div style="display:flex;gap:6px;"><input type="text" id="wantQ" value="${esc(wantQ)}" placeholder="Pokémon name, e.g. Umbreon" style="flex:1;" oninput="wantQ=this.value" onkeydown="if(event.key==='Enter')wSearch()"><button class="btn accent" data-k2="want-search">Find cards</button></div>
+      ${wantMsg ? `<p class="tx-hint">${esc(wantMsg)}</p>` : ''}<div class="browse-grid" style="margin-top:8px;">${res}</div></div>
+    ${rows || '<p class="tx-hint">Nothing on your list yet. Search for a card above and tap it to add it.</p>'}`;
 }
 function renderTimeline(){
   const pageOf = {}; BINDER.forEach(r => { if(r.type === 'POKÉMON') pageOf[r.display] = r.page; });
