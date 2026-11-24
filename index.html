@@ -1989,7 +1989,8 @@ function toolsStatus(){
   const diffs = d.inAppOnly.length + d.inCollectrOnly.length;
   const shortN = shortPagesList().length;
   const reorgN = reorgOpen() ? 1 : 0;
-  return { picks, pairs, diffs, shortN, reorgN, total: picks + pairs + diffs + reorgN };
+  const cmN = cmOpen() ? 1 : 0;
+  return { picks, pairs, diffs, shortN, reorgN, cmN, total: picks + pairs + diffs + reorgN + cmN };
 }
 
 /* "regular" | "foil" | "other" from Collectr's Variance text. */
@@ -2766,7 +2767,7 @@ const ROUTES = [
   { id:'settings', label:'Settings', icon:'settings', group:'Manage' },
 ];
 // Tools is a hub: these pages all live under it in the menu.
-const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist','forms','reorg','rowgroups','newtax','browse','whyplaced','types','moveguide'];
+const TOOL_ROUTE_IDS = ['tools','collectr','picks','duplicates','fullart','checklist','forms','reorg','rowgroups','newtax','browse','whyplaced','types','moveguide','catmoves'];
 // The bottom tabbar only has room for a handful of tabs before they either
 // get crammed or require horizontal scrolling to discover. These four cover
 // the screens used day-to-day; everything else lives behind "More".
@@ -2781,14 +2782,14 @@ function currentRoute(){
 function navHTML(activeId, mobile){
   if(!mobile){
     let lastGroup = null;
-    return ROUTES.map(r => (r.group !== lastGroup ? (lastGroup = r.group, `<div class="nav-group">${r.group}</div>`) : '') + `<button class="navlink ${r.id===activeId?'active':''}" data-nav="${r.id}">${ICONS[r.icon]}<span>${r.label}</span>${r.id==='tools' && lastToolStatus.total ? redDotHTML() : ''}</button>`).join('');
+    return ROUTES.map(r => (r.group !== lastGroup ? (lastGroup = r.group, `<div class="nav-group">${r.group}</div>`) : '') + `<button class="navlink ${r.id===activeId?'active':''}" data-nav="${r.id}">${ICONS[r.icon]}<span>${r.label}</span>${(r.id==='tools' && lastToolStatus.total) || (r.id==='wants' && wantHits()) ? redDotHTML() : ''}</button>`).join('');
   }
   const overflow = ROUTES.filter(r => !MOBILE_PRIMARY_ROUTE_IDS.includes(r.id));
   const primaryHTML = MOBILE_PRIMARY_ROUTE_IDS.map(id => ROUTES.find(r=>r.id===id))
     .map(r => `<button class="${r.id===activeId?'active':''}" data-nav="${r.id}">${ICONS[r.icon]}<span>${r.label.replace(' History','')}</span></button>`)
     .join('');
   const moreActive = overflow.some(r => r.id===activeId);
-  return primaryHTML + `<button class="${moreActive?'active':''}" data-action="open-more-menu">${ICONS.more}<span>More</span>${lastToolStatus.total ? redDotHTML() : ''}</button>`;
+  return primaryHTML + `<button class="${moreActive?'active':''}" data-action="open-more-menu">${ICONS.more}<span>More</span>${lastToolStatus.total || wantHits() ? redDotHTML() : ''}</button>`;
 }
 function openMoreMenu(){
   lastToolStatus = toolsStatus();
@@ -2799,7 +2800,7 @@ function openMoreMenu(){
     <div class="more-menu-list">
       ${(() => { let lg = null; return overflow.map(r => (r.group !== lg ? (lg = r.group, `<div class="nav-group more-group">${r.group}</div>`) : '') + `
         <button class="more-menu-item ${r.id===activeId?'active':''}" data-nav="${r.id}">
-          ${ICONS[r.icon]}<span>${r.label}</span>${r.id==='tools' && lastToolStatus.total ? redDotHTML() : ''}
+          ${ICONS[r.icon]}<span>${r.label}</span>${(r.id==='tools' && lastToolStatus.total) || (r.id==='wants' && wantHits()) ? redDotHTML() : ''}
         </button>`).join(''); })()}
     </div>`;
   openModal('More', body, '');
@@ -2872,6 +2873,7 @@ function render(){
     whyplaced: renderWhyPlaced,
     types: renderTypeGuide,
     moveguide: renderMoveGuide,
+    catmoves: renderCatMoves,
     shiny: renderShiny,
     forms: renderForms,
     tools: renderTools,
@@ -6897,6 +6899,7 @@ function renderTools(){
     ${tool('fullart','photo','Not full art','Which Pokémon have no full-art card printed anywhere, which you can still look for, and which of your cards aren’t full art. Also turns on the full-art symbols in the binder.',0,fullArtStatusText())}
     ${tool('rowgroups','binder','Row groups & layout','Sub-sub categories inside a section (Foxes inside Dogs, Mushrooms inside Fungi), plus the option to start each evolution line on a new row. Suggestions show the page cost before you apply them.',0, Object.keys(STATE.settings.rowClusters||{}).length ? `${fmtInt(rgMine().length)} row group${rgMine().length===1?'':'s'} in use · ${fmtInt(BINDER_MAX_PAGE)} pages` : `${fmtInt(BINDER_MAX_PAGE)} pages · ${LAYOUT_OPTS.familyRows==='off'?'lines packed together':'new row per line'}`)}
     ${tool('newtax','binder','New taxonomy','Rebuilds the binder in your timeline order: Deities, Mythicals, Ancients, Fossils, Modern day, Futures. Shows the page count before you switch, and you can go back.',0, taxNewActive() ? 'In use · ' + fmtInt(BINDER_MAX_PAGE) + ' pages' : 'Not switched yet')}
+    ${taxNewActive() ? tool('catmoves','binder','Category moves','Suggested moves from the Etsy field-guide comparison (Delibird, Marill, the bagworms and a few optional bird ones). Say yes or no to each, see the page count first, and undo them all if you change your mind.', cmOpen() ? 1 : 0, cmStatusText()) : ''}
     ${taxNewActive() ? '' : tool('reorg','binder','Reorganize plan','A reviewed plan to file Pokémon by their final evolution, keep Ultra Beasts and fossils together, and merge thin sections so fewer pockets are wasted. Apply it, dismiss it, or undo it.',reorgOpen()?1:0, reorgOpen() ? `${fmtInt(reorgPending().length)} Pokémon to move` : (STATE.settings.reorgApplied ? 'Applied' : (STATE.settings.reorgDismissed===REORG_PLAN.id ? 'Dismissed' : 'Nothing to apply')))}
     ${tool('whyplaced','pokedex','Why deities and mythicals are placed here','The idea behind Part I (deities) and Part II (mythicals), and a short reason for every group, with the lore it is based on.',0,'Parts I and II')}
     ${tool('browse','pokedex','Browse by region or evolution','See every Pokémon grouped by the region it is from, or by how it evolves (level, each stone, trade, friendship…), with its binder page and whether you own it.',0,'Where they\u2019re from · How they evolve')}
@@ -9077,22 +9080,26 @@ function arrSetSecFam(secKey, v){
   if(v) STATE.settings.sectionFamilyRows[secKey] = v; else delete STATE.settings.sectionFamilyRows[secKey];
   layoutSave(); render();
 }
+function artStyle(url){ return url ? `style="background:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url('${url}') center/cover;color:#fff;"` : ''; }
 function arrPocketHTML(page, pocket){
   const c = arrCell(page, pocket), ap = page + ':' + pocket;
   if(!c || c.kind === 'none') return `<div class="pocket empty"></div>`;
   const fine = window.matchMedia && matchMedia('(pointer:fine)').matches;
   const isSel = arrSel && c.pos != null && arrSel.secKey === c.secKey && arrSel.pos === c.pos;
   if(c.kind === 'head'){
-    return `<div class="pocket label arr arr-head ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0" aria-label="${esc(arrHeadWord(c.lvl))} card ${esc(c.text)}. Tap to pick it up"><div class="lv">${esc(c.row.labelLevel||'')}</div><div class="nm">${esc(c.text)}</div></div>`;
+    const art = (STATE.settings.labelArt || {})[c.row.key];
+    return `<div class="pocket label arr arr-head ${isSel?'arr-sel':''}${art?' has-art':''}" ${artStyle(art)} data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0" aria-label="${esc(arrHeadWord(c.lvl))} card ${esc(c.text)}. Tap to pick it up"><div class="lv">${esc(c.row.labelLevel||'')}</div><div class="nm">${esc(c.text)}</div></div>`;
   }
   if(c.kind === 'auto'){
     const r = c.row, txt = STATE.labelOverrides[r.key] || r.display;
-    return `<div class="pocket label arr-auto"><div class="lv">${esc(r.labelLevel||'')}</div><div class="nm">${esc(txt)}</div></div>`;
+    const art = (STATE.settings.labelArt || {})[r.key];
+    return `<div class="pocket label arr-auto${art?' has-art':''}" ${artStyle(art)}><div class="lv">${esc(r.labelLevel||'')}</div><div class="nm">${esc(txt)}</div></div>`;
   }
   if(c.kind === 'empty') return `<div class="pocket empty arr arr-empty ${c.spot?'arr-spotcell':''} ${isSel?'arr-sel':''}" data-ap="${ap}" role="button" tabindex="0" aria-label="${c.spot?'Blank spot':'Empty pocket'} ${pocket}. Tap to add a card or place a Pokémon"><span class="arr-plus" aria-hidden="true">${c.spot?'blank':'＋'}</span></div>`;
   if(c.kind === 'label'){
     const lv = c.row.type === 'ROW LABEL' ? 'THE GROUP' : 'NOTE';
-    return `<div class="pocket label arr ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0"><div class="lv">${c.row.cardKind === 'art' ? 'ART' : c.row.cardKind === 'fact' ? 'DID YOU KNOW' : lv}</div><div class="nm">${esc(c.text)}</div>${c.row.details ? `<div class="dc-lines">${esc(c.row.details.slice(0,3).join(' · '))}</div>` : ''}</div>`;
+    const art = (STATE.settings.labelArt || {})[c.row.key];
+    return `<div class="pocket label arr ${isSel?'arr-sel':''}${art?' has-art':''}" ${artStyle(art)} data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0"><div class="lv">${c.row.cardKind === 'art' ? 'ART' : c.row.cardKind === 'fact' ? 'DID YOU KNOW' : lv}</div><div class="nm">${esc(c.text)}</div>${c.row.details ? `<div class="dc-lines">${esc(c.row.details.slice(0,3).join(' · '))}</div>` : ''}</div>`;
   }
   const sp = speciesByName.get(c.name), owned = speciesOwnedQty(c.name) > 0 || !!STATE.manualOwned[c.name];
   return `<div class="pocket arr ${owned?'owned':'missing'} ${c.row.fresh?'arr-fresh':''} ${isSel?'arr-sel':''}" data-ap="${ap}" ${fine?'draggable="true"':''} role="button" tabindex="0">
@@ -9439,6 +9446,14 @@ function handleK2(el){
     }
     case 'pin-del': layoutSnapshot(); STATE.settings.pinFirst = (STATE.settings.pinFirst || []).filter(x => x !== d.v); layoutSave(); openLayoutOptions(); render(); return true;
     case 'arr-head-edit': { if(arrSel){ const sec = arrSecs().get(arrSel.secKey), r = sec && sec.body.find(x => arrHeadLevel(x) === arrSel.lvl); if(r) openLabelEditor(r.key); } return true; }
+    case 'cm-group': { const es = cmEntries().filter(x => x.gid === d.gid && cmState(x) === 'pending'), y = window.scrollY; cmSet(es, d.v === 'yes'); render(); try{ window.scrollTo(0, y); }catch(_){} return true; }
+    case 'cm-pk': { const en = cmEntries().find(x => x.n === d.n && x.gid === d.g), y = window.scrollY; if(en){ cmSet([en], !cmChoice(en)); render(); try{ window.scrollTo(0, y); }catch(_){} } return true; }
+    case 'cm-expand': { const y = window.scrollY; if(CM_OPEN.has(d.gid)) CM_OPEN.delete(d.gid); else CM_OPEN.add(d.gid); render(); try{ window.scrollTo(0, y); }catch(_){} return true; }
+    case 'cm-apply': { const list = cmChosen(); if(!list.length) return true; confirmAction('Apply your Yes choices? ' + list.length + ' Pokémon will move inside their sections. You can undo it afterwards.', () => { cmApply(list); render(); }, 'Moves applied.'); return true; }
+    case 'cm-apply-group': { const g = CM_DEF.find(x => x.id === d.gid), list = cmChosen().filter(x => x.gid === d.gid); if(!list.length) return true; confirmAction('Apply \u201c' + (g ? g.title : 'this move') + '\u201d? ' + list.length + ' Pokémon will move. You can undo it afterwards.', () => { cmApply(list); render(); }, 'Moved ' + list.length + ' Pokémon.'); return true; }
+    case 'cm-undo': confirmAction('Undo every category move? Everything these moves changed goes back to how it was just before the first Apply.', () => { cmUndo(); render(); }, 'Moves undone.'); return true;
+    case 'cm-dismiss': STATE.settings.cmDismissed = CM_ID; persist('settings'); toast('Dismissed. Nothing was changed.'); render(); return true;
+    case 'cm-restore': delete STATE.settings.cmDismissed; persist('settings'); render(); return true;
     case 'want-search': wSearch(); return true;
     case 'want-refresh': wRefresh(); return true;
     case 'want-add': { const c = (wantRes || []).find(x => x.id === d.id); if(c && !wList().some(w => w.id === c.id)){ const w = { id:c.id, name:c.name, num:c.number, set:c.set.name, img:c.images && c.images.small }; wApply(w, c); wList().push(w); persist('settings'); toast('Added to your want list.'); } render(); return true; }
@@ -9551,7 +9566,11 @@ function taxNewRefresh(){
   SPECIES.forEach(sp => {
     if(!on){ delete sp.so; delete sp.deep; return; }
     const t = NEWTAX.by.get(sp.name);
-    if(t){ sp.so = t.so; sp.deep = (sp.group === t.g && sp.category === t.c && sp.subcategory === t.s) ? t.deep : []; }
+    if(t){
+      sp.so = t.so; sp.deep = (sp.group === t.g && sp.category === t.c && sp.subcategory === t.s) ? t.deep : [];
+      const ed = ((STATE.settings && STATE.settings.taxEdits) || {})[sp.name];
+      if(ed && sp.group === t.g && sp.category === t.c && sp.subcategory === t.s){ if(typeof ed.so === 'number') sp.so = ed.so; if(Array.isArray(ed.deep)) sp.deep = ed.deep.slice(); }
+    }
     else { sp.so = 100000 + (typeof sp.dex === 'number' ? sp.dex : 0); sp.deep = []; }
   });
 }
@@ -10170,10 +10189,192 @@ function tlChip(n, pg){
   const sp = speciesByName.get(n), own = isOwned(n);
   return `<span class="tl-pk ${own ? 'own' : 'miss'}" title="${esc(sp.category || '')}${sp.subcategory && sp.subcategory !== NO_SUB ? ' › ' + esc(sp.subcategory) : ''}"><a href="#/pokedex/${encodeURIComponent(n)}">${own ? speciesImgTag(sp, 'tl-img') : ''}${esc(n)}</a>${pg ? `<a class="tl-pg" href="#/binder/${pg}">p.${pg}</a>` : ''}</span>`;
 }
+/* ---------------- Category moves (new taxonomy): say yes or no to each suggested move ----------------
+   Each move changes where a Pokémon sits inside its section: the labelled row group it belongs to, and/or its place in line.
+   Saved in Settings as taxEdits, so the moves ride along in backups. Undo puts everything back to how it was before the first Apply. */
+const CM_ID = 'catmoves-2026-11-23';
+const CM_DEF = [
+  { id:'penguin', title:'Delibird → Penguins', why:'The Etsy field guide files Delibird with the penguins. Piplup’s line and Eiscue are already there.', deep:['Aves (Birds)','Sphenisciformes (Penguins)'], after:'Eiscue (Noice Face)', names:['Delibird'] },
+  { id:'marill', title:'Azurill, Marill, Azumarill → Rodents', why:'The guide calls Marill a water rat. They would sit right after Bidoof and Bibarel, the other water-loving rodents.', deep:['Mammalia (Mammals)','Rodentia (Rodents)'], after:'Bibarel', names:['Azurill','Marill','Azumarill'] },
+  { id:'bagworm', title:'Pineco and Forretress next to Burmy and Wormadam', why:'The guide puts the bagworm Pokémon together. They stay in Butterflies & Moths; only their order changes, so the page count should not change.', before:'Burmy', names:['Pineco','Forretress'] },
+  { id:'natu', optional:true, title:'Natu, Xatu → Parrots, Toucans & Tropical Birds', why:'Optional. The guide files the Natu line with the parrots, after Squawkabilly.', deep:['Aves (Birds)','Psittaciformes & Relatives (Parrots, Toucans & Tropical Birds)'], after:'Squawkabilly', names:['Natu','Xatu'] },
+  { id:'sb-pigeon', optional:true, slot:0, title:'Songbirds split: Pigeons & Doves', why:'Optional. Pidgey’s line and Pidove’s line get their own labelled group instead of sitting in the big Songbirds group.', deep:['Aves (Birds)','Columbidae (Pigeons & Doves)'], names:['Pidgey','Pidgeotto','Pidgeot','Mega Pidgeot','Pidove','Tranquill','Unfezant','Unfezant (Female)'] },
+  { id:'sb-sparrow', optional:true, slot:1, title:'Songbirds split: Sparrows', why:'Optional. Spearow and Fearow in their own labelled group.', deep:['Aves (Birds)','Passeridae (Sparrows)'], names:['Spearow','Fearow'] },
+  { id:'sb-swallow', optional:true, slot:2, title:'Songbirds split: Swallows', why:'Optional. Taillow and Swellow in their own labelled group.', deep:['Aves (Birds)','Hirundinidae (Swallows)'], names:['Taillow','Swellow'] },
+  { id:'sb-starling', optional:true, slot:3, title:'Songbirds split: Starlings', why:'Optional. Starly’s line in its own labelled group.', deep:['Aves (Birds)','Sturnidae (Starlings)'], names:['Starly','Staravia','Staraptor'] },
+  { id:'sb-crow', optional:true, slot:4, title:'Songbirds split: Crows & Ravens', why:'Optional. Murkrow, Honchkrow and the Rookidee line in their own labelled group.', deep:['Aves (Birds)','Corvidae (Crows & Ravens)'], names:['Murkrow','Honchkrow','Rookidee','Corvisquire','Corviknight','Gigantamax Corviknight'] },
+  { id:'sb-robin', optional:true, slot:5, title:'Songbirds split: Robins', why:'Optional. The Fletchling line in its own labelled group.', deep:['Aves (Birds)','Turdidae (Robins)'], names:['Fletchling','Fletchinder','Talonflame'] },
+];
+var CM_OPEN = new Set(), CM_FX = new Map();
+const cmR4 = x => Math.round(x * 10000) / 10000;
+const cmSame = (a, b) => (a || []).join('\u0001') === (b || []).join('\u0001');
+function cmEntries(){
+  const out = [];
+  if(!NEWTAX) return out;
+  CM_DEF.forEach(g => {
+    g.names.forEach((n, i) => {
+      if(!NEWTAX.by.has(n)) return;
+      let so = null, anchor = null, side = 'after';
+      if(g.after){ const at = NEWTAX.by.get(g.after); if(at){ so = cmR4(at.so + 0.01 * (i + 1)); anchor = i ? g.names[i - 1] : g.after; } }
+      else if(g.before){ const at = NEWTAX.by.get(g.before); if(at){ so = cmR4(at.so - 0.01 * (g.names.length - i)); anchor = g.before; side = 'before'; } }
+      else if(g.slot != null){ so = cmR4(670.5 + g.slot * 0.05 + i * 0.001); }
+      if(so == null) return;
+      out.push({ n, gid:g.id, so, deep:g.deep || null, anchor, side });
+    });
+  });
+  return out;
+}
+function cmState(e){
+  const sp = speciesByName.get(e.n), t = NEWTAX && NEWTAX.by.get(e.n);
+  if(!sp || !t) return 'gone';
+  const here = sp.group === t.g && sp.category === t.c && sp.subcategory === t.s && !ROW_CLUSTERS[e.n] && typeof sp.so === 'number';
+  if(!here) return 'changed';
+  if(Math.abs(sp.so - e.so) < 1e-6 && cmSame(sp.deep, e.deep || t.deep)) return 'done';
+  if(Math.abs(sp.so - t.so) < 1e-6 && cmSame(sp.deep, t.deep)) return 'pending';
+  return 'changed';
+}
+function cmChoice(e){
+  const m = (STATE.settings && STATE.settings.cmChoices) || {}, k = e.gid + '|' + e.n;
+  if(Object.prototype.hasOwnProperty.call(m, k)) return !!m[k];
+  const g = CM_DEF.find(x => x.id === e.gid);
+  return !(g && g.optional);
+}
+function cmPending(){ return cmEntries().filter(e => cmState(e) === 'pending'); }
+function cmChosen(){ return cmPending().filter(cmChoice); }
+function cmSet(list, yes){
+  if(!STATE.settings.cmChoices) STATE.settings.cmChoices = {};
+  list.forEach(e => { STATE.settings.cmChoices[e.gid + '|' + e.n] = !!yes; });
+  persist('settings');
+}
+function cmOpen(){
+  try{
+    if(!taxNewActive() || STATE.settings.cmDismissed === CM_ID) return false;
+    return cmPending().some(e => { const g = CM_DEF.find(x => x.id === e.gid); return !(g && g.optional); });
+  }catch(err){ return false; }
+}
+function cmPreview(list){
+  const copy = SPECIES.map(x => Object.assign({}, x)), by = new Map(copy.map(x => [x.name, x]));
+  list.forEach(e => { const c = by.get(e.n), t = NEWTAX.by.get(e.n); if(c && t){ c.so = e.so; c.deep = (e.deep || t.deep).slice(); } });
+  const rows = computeBinderLayout(copy);
+  return { pages: rows.length ? rows[rows.length - 1].page : 0, short: shortPagesList(rows).length };
+}
+function cmApply(list){
+  list = list || cmChosen(); if(!list.length) return 0;
+  const st = STATE.settings;
+  if(!st.cmUndo) st.cmUndo = { edits: JSON.parse(JSON.stringify(st.taxEdits || {})), orders: {} };
+  if(!st.taxEdits) st.taxEdits = {};
+  list.forEach(e => {
+    const t = NEWTAX.by.get(e.n), sp = speciesByName.get(e.n); if(!t || !sp) return;
+    st.taxEdits[e.n] = { so:e.so, deep:(e.deep || t.deep).slice() };
+    // A section you arranged by hand keeps your order, so move the card inside that list too.
+    const key = layoutSecKey(sp.category, sp.subcategory), man = st.sectionOrder && st.sectionOrder[key];
+    if(man && man.length && e.anchor){
+      const from = man.findIndex(it => it && it.k === 'p' && it.n === e.n);
+      if(from >= 0){
+        if(!st.cmUndo.orders[key]) st.cmUndo.orders[key] = JSON.parse(JSON.stringify(man));
+        const it = man.splice(from, 1)[0], at = man.findIndex(x => x && x.k === 'p' && x.n === e.anchor);
+        if(at >= 0) man.splice(e.side === 'before' ? at : at + 1, 0, it); else man.splice(from, 0, it);
+      }
+    }
+  });
+  const prev = (st.cmApplied && st.cmApplied.id === CM_ID) ? st.cmApplied.n : 0;
+  st.cmApplied = { id: CM_ID, at: new Date().toISOString(), n: prev + list.length };
+  delete st.cmDismissed; CM_FX.clear();
+  persist('settings'); rebuildBinder();
+  return list.length;
+}
+function cmUndo(){
+  const st = STATE.settings, u = st.cmUndo; if(!u) return false;
+  st.taxEdits = u.edits || {};
+  Object.keys(u.orders || {}).forEach(k => { if(!st.sectionOrder) st.sectionOrder = {}; st.sectionOrder[k] = u.orders[k]; });
+  delete st.cmUndo; delete st.cmApplied; CM_FX.clear();
+  persist('settings'); rebuildBinder();
+  return true;
+}
+function cmStatusText(){
+  const p = cmPending(), core = p.filter(e => { const g = CM_DEF.find(x => x.id === e.gid); return !(g && g.optional); }).length;
+  if(!p.length) return 'All done';
+  return core ? fmtInt(core) + ' suggested · ' + fmtInt(p.length - core) + ' optional' : fmtInt(p.length) + ' optional left';
+}
+function cmFx(g, list, total){
+  const k = g.id + '|' + list.map(e => e.n + e.so).join(',') + '|' + total + '|' + ((STATE.settings.cmApplied || {}).at || '');
+  if(!CM_FX.has(k)) CM_FX.set(k, cmPreview(list).pages);
+  return CM_FX.get(k);
+}
+function renderCatMoves(){
+  const sub = 'Say yes or no to each suggested move, or to single Pokémon.';
+  const head = `<div class="pagehead"><div><h1>Category moves${cmOpen() ? redDotHTML() : ''}</h1><div class="sub">${sub}</div></div><button class="btn" data-nav="tools">← Tools</button></div>`;
+  if(!taxNewActive()) return head + `<div class="card" style="padding:14px;">These moves are written for the new taxonomy. Open Tools › New taxonomy and switch to it first, then come back here.</div>`;
+  const st = STATE.settings, all = cmEntries(), pend = all.filter(e => cmState(e) === 'pending'), chosen = pend.filter(cmChoice);
+  const total = BINDER_MAX_PAGE, shortNow = shortPagesList().length, pv = cmPreview(chosen);
+  const dismissed = st.cmDismissed === CM_ID, applied = st.cmApplied && st.cmApplied.id === CM_ID;
+  const byG = new Map(); all.forEach(e => { if(!byG.has(e.gid)) byG.set(e.gid, []); byG.get(e.gid).push(e); });
+  const cards = CM_DEF.map(g => {
+    const es = byG.get(g.id) || []; if(!es.length) return '';
+    const pe = es.filter(e => cmState(e) === 'pending'), done = es.filter(e => cmState(e) === 'done').length;
+    const yes = pe.filter(cmChoice), no = pe.length - yes.length;
+    const state = !pe.length ? '' : no === 0 ? 'yes' : yes.length === 0 ? 'no' : 'mixed';
+    const badge = g.optional ? ' <span class="badge dup">Optional</span>' : '';
+    const status = !pe.length ? `<span class="set">${done === es.length ? 'Done' : done ? fmtInt(done) + ' done, rest changed by you' : 'Changed by you since'}</span>`
+      : state === 'mixed' ? `<span class="set">${fmtInt(yes.length)} yes, ${fmtInt(no)} no</span>` : '';
+    let fx = '';
+    if(pe.length && yes.length){ const pg = cmFx(g, yes, total); fx = `<div class="meta" style="margin:6px 0 0;">${pg === total ? 'Binder stays at ' + fmtInt(total) + ' pages if you apply just this.' : 'Binder pages if you apply just this: ' + fmtInt(total) + ' → ' + fmtInt(pg) + '.'}</div>`; }
+    const ctl = pe.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        <button class="btn sm ${state === 'yes' ? 'primary' : ''}" data-k2="cm-group" data-gid="${esc(g.id)}" data-v="yes" aria-pressed="${state === 'yes'}">Yes${pe.length > 1 ? ', all ' + fmtInt(pe.length) : ''}</button>
+        <button class="btn sm ${state === 'no' ? 'primary' : ''}" data-k2="cm-group" data-gid="${esc(g.id)}" data-v="no" aria-pressed="${state === 'no'}">No${pe.length > 1 ? ', none' : ''}</button>
+        ${yes.length ? `<button class="btn sm" data-k2="cm-apply-group" data-gid="${esc(g.id)}">Apply ${fmtInt(yes.length)} now</button>` : ''}
+        ${status}</div>` : status;
+    const open = CM_OPEN.has(g.id) || es.length <= 4;
+    const list = open && es.length > 1 ? `<div style="margin-top:8px;">${es.map(e => {
+      const s = cmState(e), on = cmChoice(e);
+      const right = s === 'pending'
+        ? `<button class="btn sm ${on ? 'primary' : ''}" data-k2="cm-pk" data-g="${esc(e.gid)}" data-n="${esc(e.n)}" aria-pressed="${on}" aria-label="${esc(e.n)}: ${on ? 'yes, move it. Tap to say no' : 'no, keep it. Tap to say yes'}">${on ? 'Yes' : 'No'}</button>`
+        : `<span class="set">${s === 'done' ? 'Done' : s === 'gone' ? 'Removed' : 'You moved it'}</span>`;
+      return `<div class="pair-line" style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line, rgba(128,128,128,.25));"><div style="min-width:0;flex:1;"><strong>${esc(e.n)}</strong></div>${right}</div>`;
+    }).join('')}</div>` : '';
+    const toggle = es.length > 4 ? `<button class="btn sm" style="margin-top:8px;" data-k2="cm-expand" data-gid="${esc(g.id)}" aria-expanded="${open}">${open ? 'Hide the Pokémon' : 'Choose Pokémon one by one (' + fmtInt(es.length) + ')'}</button>` : '';
+    return `<div class="card" style="padding:12px;margin-bottom:8px;"><div style="font-weight:600;margin-bottom:4px;">${esc(g.title)}${badge}</div><div class="meta" style="margin-bottom:8px;">${esc(g.why)}</div>${ctl}${fx}${toggle}${list}</div>`;
+  }).join('');
+  const undoBox = applied ? `<div class="card" style="padding:14px;margin-bottom:12px;border-color:var(--accent);"><strong>${fmtInt(st.cmApplied.n)} Pokémon moved so far</strong> (last on ${esc(String(st.cmApplied.at || '').slice(0, 10))}). You can undo everything these moves did at once.<div style="margin-top:10px;"><button class="btn" data-k2="cm-undo">Undo everything these moves did</button></div></div>` : '';
+  const action = dismissed
+    ? `<div class="card" style="padding:14px;margin-bottom:12px;"><strong>Dismissed.</strong> The red dot is hidden and nothing has changed.<div style="margin-top:10px;"><button class="btn" data-k2="cm-restore">Bring it back</button></div></div>`
+    : pend.length
+    ? `<div class="card" style="padding:14px;margin-bottom:12px;"><div style="display:flex;gap:10px;flex-wrap:wrap;">${chosen.length ? `<button class="btn primary" data-k2="cm-apply">Apply all my Yes choices (${fmtInt(chosen.length)} Pokémon)</button>` : '<span class="set">Nothing is set to Yes right now.</span>'}<button class="btn" data-k2="cm-dismiss">Dismiss the list</button></div><p class="meta" style="margin:10px 0 0;">Nothing moves until you tap an Apply button.</p></div>`
+    : `<div class="card" style="padding:14px;margin-bottom:12px;"><strong>Nothing left to apply.</strong> Every move here is either done or has been changed by you since.</div>`;
+  return head + `
+    <div class="card" style="padding:14px;margin-bottom:12px;font-size:13.5px;">
+      <div class="section-title" style="margin-top:0;">How this works</div>
+      <p style="margin:6px 0;">These moves came from comparing your binder with the Etsy field guides. Many of the first ideas (the Torchic, Starly, Doduo and Farfetch’d moves, Cosmog and Cosmoem) are already right in the new taxonomy, so they are not listed. Each item has a Yes and a No. Optional items start on No.</p>
+      <p style="margin:6px 0;">Nothing is deleted and no card moves between sections. Only the order and labelled groups inside a section change.</p>
+    </div>
+    <div class="card" style="padding:14px;margin-bottom:12px;">
+      <div class="section-title" style="margin-top:0;">If you apply your Yes choices</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:6px;">
+        <div><div class="set">Binder pages</div><div style="font-size:20px;font-weight:600;">${fmtInt(total)} <span aria-hidden="true">→</span><span class="sr-only"> to </span> ${fmtInt(pv.pages)}</div></div>
+        <div><div class="set">Short pages</div><div style="font-size:20px;font-weight:600;">${fmtInt(shortNow)} <span aria-hidden="true">→</span><span class="sr-only"> to </span> ${fmtInt(pv.short)}</div></div>
+      </div>
+      <p class="meta" style="margin:8px 0 0;">Worked out live from your current binder. A section you arranged by hand keeps your order.</p>
+    </div>
+    ${undoBox}${action}
+    ${cards}`;
+}
+
 /* ---------------- Want list: Pokémon cards you want, with daily TCGplayer prices and eBay searches ---------------- */
 var wantQ = '', wantRes = null, wantMsg = '', wantBusy = false, wantAuto = false;
 const wList = () => (STATE.settings.wants = STATE.settings.wants || []);
 const wMoney = n => n == null ? '–' : '$' + Number(n).toFixed(2);
+function wantHits(){ try{ return ((STATE.settings && STATE.settings.wants) || []).filter(w => w.target != null && w.m != null && w.m <= w.target).length; }catch(e){ return 0; } }
+var wBgDone = false;
+async function wBackground(){
+  if(wBgDone) return; wBgDone = true;
+  const L = wList(); if(!L.length || !L.some(w => !w.t || Date.now() - w.t > 432e5)) return;
+  if(currentRoute().id === 'wants') return;   // the Want list page checks prices itself
+  try{
+    for(const w of L){ const r = await fetchJSONTimeout('https://api.pokemontcg.io/v2/cards/' + encodeURIComponent(w.id) + '?select=id,tcgplayer', 20000); if(r && r.data) wApply(w, r.data); }
+    persist('settings');
+    if(currentRoute().id === 'wants') render(); else renderShell();
+  }catch(e){}
+}
 function wSuggest(w){ if(w.m == null) return null; const h = Object.values(w.hist || {}), mn = h.length > 2 ? Math.min.apply(null, h) * 1.05 : w.m * 0.9; return Math.round(Math.max(w.lo || 0, Math.min(w.m * 0.9, mn)) * 100) / 100; }
 function wApply(w, c){
   const p = (c && c.tcgplayer && c.tcgplayer.prices) || {}, k = (w.v && p[w.v]) ? w.v : (Object.keys(p).find(x => p[x] && p[x].market != null) || Object.keys(p)[0]);
@@ -10213,7 +10414,7 @@ function renderWants(){
           <button class="btn sm" data-k2="want-del" data-id="${esc(w.id)}">Remove</button>
         </div></div></div>`; }).join('');
   const res = (wantRes || []).map(c => `<button class="browse-card" data-k2="want-add" data-id="${esc(c.id)}">${c.images && c.images.small ? `<img src="${esc(c.images.small)}" alt="" style="width:100%;border-radius:6px;">` : ''}<span class="bc-t">${esc(c.name)}</span><span class="bc-n">${esc(c.set.name)} #${esc(c.number)}</span></button>`).join('');
-  return `<div class="pagehead"><div><h1>Want list</h1><div class="sub">${L.length} card${L.length === 1 ? '' : 's'}${hits ? ' · ' + hits + ' at your price' : ''}</div></div><button class="btn" data-k2="want-refresh">Refresh prices</button></div>
+  return `<div class="pagehead"><div><h1>Want list${hits ? redDotHTML() : ''}</h1><div class="sub">${L.length} card${L.length === 1 ? '' : 's'}${hits ? ' · ' + hits + ' at your price' : ''}</div></div><button class="btn" data-k2="want-refresh">Refresh prices</button></div>
     <p class="tx-hint">TCGplayer prices come from the free Pokémon card database and update about once a day. The eBay buttons open a live search.</p>
     <div class="card" style="margin-bottom:10px;"><div style="display:flex;gap:6px;"><input type="text" id="wantQ" value="${esc(wantQ)}" placeholder="Pokémon name, e.g. Umbreon" style="flex:1;" oninput="wantQ=this.value" onkeydown="if(event.key==='Enter')wSearch()"><button class="btn accent" data-k2="want-search">Find cards</button></div>
       ${wantMsg ? `<p class="tx-hint">${esc(wantMsg)}</p>` : ''}<div class="browse-grid" style="margin-top:8px;">${res}</div></div>
@@ -10496,6 +10697,7 @@ try{ rebuildBinder(); }catch(e){}
 // so reloading the app while sitting on any page (the Binder, Pokédex, Import...) can't hit an
 // uninitialised variable and stop the app from starting.
 render();
+try{ setTimeout(wBackground, 2500); }catch(e){}
 try{ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(function(){}); }catch(e){}
 try{ const u = sessionStorage.getItem('kd.undone'); if(u){ sessionStorage.removeItem('kd.undone'); toast('Undone: ' + u); } }catch(e){}
 </script>
